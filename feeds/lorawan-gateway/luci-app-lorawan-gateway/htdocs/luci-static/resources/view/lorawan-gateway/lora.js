@@ -116,11 +116,11 @@ return view.extend({
 		navSection.anonymous = true;
 		navSection.addremove = false;
 
-		o = navSection.option(form.Button, '_mqtt', _('Go to MQTT Configuration'));
+		o = navSection.option(form.Button, '_mqtt', _('Go to RS485 Configuration'));
 		o.inputstyle = 'action';
-		o.inputtitle = _('MQTT');
+		o.inputtitle = _('RS485');
 		o.onclick = function() {
-			location.href = L.url('admin/lorawan-gateway/mqtt');
+			location.href = L.url('admin/lorawan-gateway/rs485');
 		};
 
 		o = navSection.option(form.Button, '_log', _('Go to Log Viewer'));

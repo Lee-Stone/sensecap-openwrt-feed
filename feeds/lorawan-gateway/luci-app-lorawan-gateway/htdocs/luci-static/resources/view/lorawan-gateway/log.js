@@ -37,7 +37,7 @@ return view.extend({
 		o.placeholder = 'join-accept';
 
 		var logView = logSection.option(form.TextValue, '_log', _('Recent Logs'));
-		logView.readonly = true;
+		logView.readonly = false;
 		logView.rows = 18;
 		logView.wrap = 'off';
 		logView.cfgvalue = function() {
@@ -57,11 +57,11 @@ return view.extend({
 			location.href = L.url('admin/lorawan-gateway/lora');
 		};
 
-		o = navSection.option(form.Button, '_mqtt', _('Go to MQTT Configuration'));
+		o = navSection.option(form.Button, '_mqtt', _('Go to RS485 Configuration'));
 		o.inputstyle = 'action';
-		o.inputtitle = _('MQTT');
+		o.inputtitle = _('RS485');
 		o.onclick = function() {
-			location.href = L.url('admin/lorawan-gateway/mqtt');
+			location.href = L.url('admin/lorawan-gateway/rs485');
 		};
 
 		return m.render();

@@ -21,12 +21,12 @@
 			"path": "lorawan-gateway/lora"
 		}
 	},
-	"admin/lorawan-gateway/mqtt": {
-		"title": "MQTT Configuration",
+	"admin/lorawan-gateway/rs485": {
+		"title": "RS485 Configuration",
 		"order": 3,
 		"action": {
 			"type": "view",
-			"path": "lorawan-gateway/mqtt"
+			"path": "lorawan-gateway/rs485"
 		}
 	},
 	"admin/lorawan-gateway/log": {
