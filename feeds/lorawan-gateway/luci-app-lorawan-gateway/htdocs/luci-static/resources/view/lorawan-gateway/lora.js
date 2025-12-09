@@ -4,7 +4,13 @@
 'require uci';
 'require rpc';
 'require ui';
+'require dom';
+'require fs';
+'require view.lorawan-gateway.lora-platform.basicstation as basic_station';
+'require view.lorawan-gateway.lora-platform.chirpstack as chirpstack';
+'require view.lorawan-gateway.lora-platform.packetforwarder as packet_forwarder';
 
+var eui = '';
 var callInitAction = rpc.declare({
 	object: 'luci',
 	method: 'setInitAction',
@@ -12,61 +18,267 @@ var callInitAction = rpc.declare({
 	expect: { result: false }
 });
 
+const options = {
+	regions: [
+		{
+			id: "AS923",
+			name: "AS923",
+			channelPlans: [
+				{ id: "as923", name: "AS923 - Standard channels + 923.6, 923.8, ... 924.6" },
+			],
+		},
+		{
+			id: "AS923_2",
+			name: "AS923-2",
+			channelPlans: [
+				{ id: "as923_2", name: "AS923-2 - Standard channels + 921.8, 922.0, ... 922.8" },
+			],
+		},
+		{
+			id: "AS923_3",
+			name: "AS923-3",
+			channelPlans: [
+				{ id: "as923_3", name: "AS923-3 - Standard channels + 917.0, 917.2, ... 918.0" },
+			],
+		},
+		{
+			id: "AS923_4",
+			name: "AS923-4",
+			channelPlans: [
+				{ id: "as923_4", name: "AS923-4 - Standard channels + 917.7, 917.9, ... 918.7" },
+			],
+		},
+		{
+			id: "AU915",
+			name: "AU915",
+			channelPlans: [
+				{ id: "au915_0", name: "AU915 - Channels 0-7 + 64" },
+				{ id: "au915_1", name: "AU915 - Channels 8-15 + 65" },
+				{ id: "au915_2", name: "AU915 - Channels 16-23 + 66" },
+				{ id: "au915_3", name: "AU915 - Channels 24-31 + 67" },
+				{ id: "au915_4", name: "AU915 - Channels 32-39 + 68" },
+				{ id: "au915_5", name: "AU915 - Channels 40-47 + 69" },
+				{ id: "au915_6", name: "AU915 - Channels 48-55 + 70" },
+				{ id: "au915_7", name: "AU915 - Channels 56-63 + 71" },
+			],
+		},
+		{
+			id: "EU868",
+			name: "EU868",
+			channelPlans: [
+				{ id: "eu868", name: "EU868 - Standard channels + 867.1, 867.3, ... 867.9" },
+			]
+		},
+		{
+			id: "IN865",
+			name: "IN865",
+			channelPlans: [
+				{ id: "in865", name: "IN865 - Standard channels" },
+			],
+		},
+		{
+			id: "KR920",
+			name: "KR920",
+			channelPlans: [
+				{ id: "kr920", name: "KR920 - Standard channels" },
+			],
+		},
+		{
+			id: "RU864",
+			name: "RU864",
+			channelPlans: [
+				{ id: "ru864", name: "RU864 - Standard channels" },
+			],
+		},
+		{
+			id: "US915",
+			name: "US915",
+			channelPlans: [
+				{ id: "us915_0", name: "US915 - Channels 0-7 + 64" },
+				{ id: "us915_1", name: "US915 - Channels 8-15 + 65" },
+				{ id: "us915_2", name: "US915 - Channels 16-23 + 66" },
+				{ id: "us915_3", name: "US915 - Channels 24-31 + 67" },
+				{ id: "us915_4", name: "US915 - Channels 32-39 + 68" },
+				{ id: "us915_5", name: "US915 - Channels 40-47 + 69" },
+				{ id: "us915_6", name: "US915 - Channels 48-55 + 70" },
+				{ id: "us915_7", name: "US915 - Channels 56-63 + 71" },
+			],
+		},
+	],
+};
+
 function ensureSection(type) {
 	var section = uci.sections("lorawan-gateway", type)[0];
 	return section ? section[".name"] : uci.add("lorawan-gateway", type);
 }
 
+function handleSwitchPlatform(platform) {
+	var maps = lorawan_gateway_render(platform)
+	if (!Array.isArray(maps)) maps = [maps];
+
+	return Promise.all(maps.map(m => m.render())).then(LuCI.prototype.bind(nodes => {
+		var vp = document.getElementById('lorawan-gateway-wrapper');
+		if (vp) {
+			DOM.content(vp, nodes);
+		}
+	}, this))
+}
+
+function lorawan_gateway_render(platform_cur) {
+	var platform_map;
+
+	var concentratordSections = uci.sections("chirpstack-concentratord", "sx1302");
+	var stationSections = uci.sections("basicstation", "station");
+
+	var m = new form.Map('lorawan-gateway', _('LoRa Configuration'), _('Configure LoRa radio parameters.'));
+	var maps = [m];
+
+	var loraSid = ensureSection("radio");
+	var loraSection = m.section(form.NamedSection, loraSid, "radio", _("LoRa Settings"));
+	loraSection.addremove = false;
+
+	// enabled
+	var o = loraSection.option(form.Flag, "enabled", _("Enable LoRa functionality"));
+	o.rmempty = false;
+	o.default = "1";
+
+	// eui
+	o = loraSection.option(form.Value, 'eui', _('Gateway EUI'), ('Path to file containing the Gateway EUI in hex format (e.g. 00:11:22:33:44:55:66:77)'));
+	o.optional = false;
+	o.rmempty = false;
+	o.placeholder = eui;
+	o.default = eui;
+
+	o.write = function (section_id, value) {
+		// Save EUI to lorawan-gateway config
+		uci.set('lorawan-gateway', section_id, 'eui', value);
+		var eui_value = value.replace(/:/g, '');
+		uci.set("chirpstack-concentratord", concentratordSections[0]['.name'], "gateway_id", eui_value);
+		uci.set("basicstation", stationSections[0]['.name'], "routerid", value);
+	}
+
+	// channels
+	o = loraSection.option(form.ListValue, 'channel_plan', _('Channel-plan'), _('Select the channel-plan to use. This must be supported by the selected shield.'));
+	o.forcewrite = true;
+
+	for (const region of options.regions) {
+		for (const channelPlan of region.channelPlans) {
+			o.value(channelPlan.id, channelPlan.name);
+		}
+	}
+
+	o.write = function (section_id, value) {
+		// Save channel_plan to lorawan-gateway config
+		uci.set('lorawan-gateway', section_id, 'channel_plan', value);
+
+		var regionId;
+		for (const region of options.regions) {
+			for (const channelPlan of region.channelPlans) {
+				if (channelPlan.id === value) {
+					regionId = region.id;
+				}
+			}
+		}
+		uci.set("chirpstack-concentratord", concentratordSections[0]['.name'], "channel_plan", value);
+		uci.set("chirpstack-concentratord", concentratordSections[0]['.name'], "region", regionId);
+
+	}
+	// platform
+	var platform = loraSection.option(form.ListValue, "platform", _("Platform Type"));
+	platform.value("basic_station", "Basic Station");
+	platform.value("packet_forwarder", "Packet Forwarder");
+	platform.value("chirpstack", "ChirpStack");
+	platform.default = "basic_station";
+
+	platform.onchange = function (ev, section_id, values) {
+		uci.set("lorawan-gateway", section_id, "platform", values);
+		handleSwitchPlatform(values)
+	};
+	switch (platform_cur) {
+		case "basic_station": {
+			platform_map = basic_station.view();
+			break;
+		}
+		case "packet_forwarder": {
+			platform_map = packet_forwarder.view();
+			break;
+		}
+		case "chirpstack": {
+			platform_map = chirpstack.view();
+			break;
+		}
+		default: {
+			platform_map = basic_station.view();
+		}
+	}
+	if (platform_map) {
+		if (maps.length > 1) maps.pop();
+		maps.push(platform_map);
+	}
+
+	return maps;
+}
+
 return view.extend({
-	load: function() {
-		return uci.load('lorawan-gateway');
+	load: function () {
+		return Promise.all([
+			uci.load('lorawan-gateway'),
+			fs.read('/etc/device_eui').catch(function () { return ''; }),
+			uci.load('basicstation'),
+			uci.load('chirpstack-concentratord'),
+			uci.load('chirpstack-udp-forwarder'),
+		]);
 	},
 
-	handleSaveApply: function(ev, mode) {
+	handleSaveApply: function (ev, mode) {
 		var self = this;
-		return this.super('handleSaveApply', [ev, mode]).then(function() {
+		return this.super('handleSaveApply', [ev, mode]).then(function () {
 			// Reload UCI configuration to get the latest saved values
-			return uci.load('lorawan-gateway').then(function() {
-				var loraSid = uci.sections("lorawan-gateway", "radio")[0];
-				if (!loraSid) return;
-				
-				var enabled = uci.get('lorawan-gateway', loraSid['.name'], 'enabled');
-				var platform = uci.get('lorawan-gateway', loraSid['.name'], 'platform');
-				
+			return uci.load('lorawan-gateway').then(function () {
+
+				var enabled = uci.get('lorawan-gateway', ensureSection("radio"), 'enabled');
+				var platform = uci.get('lorawan-gateway', ensureSection("radio"), 'platform');
+
 				console.log('LoRa enabled:', enabled, 'platform:', platform);
-				
+
 				var actions = [];
-				
+
 				// If LoRa functionality is disabled, stop and disable all services
 				if (enabled != '1') {
 					actions = [
 						callInitAction('basicstation', 'stop'),
 						callInitAction('basicstation', 'disable'),
 						callInitAction('chirpstack-concentratord', 'stop'),
-						callInitAction('chirpstack-concentratord', 'disable')
+						callInitAction('chirpstack-concentratord', 'disable'),
+						callInitAction('chirpstack-udp-forwarder', 'stop'),
+						callInitAction('chirpstack-udp-forwarder', 'disable')
 					];
-				} else if (platform == "basicstation") {
+				} else if (platform === "basicstation") {
 					// Enable basicstation, disable chirpstack-concentratord
 					actions = [
 						callInitAction('chirpstack-concentratord', 'stop'),
 						callInitAction('chirpstack-concentratord', 'disable'),
+						callInitAction('chirpstack-udp-forwarder', 'stop'),
+						callInitAction('chirpstack-udp-forwarder', 'disable'),
 						callInitAction('basicstation', 'enable'),
 						callInitAction('basicstation', 'restart')
 					];
-				} else if (platform == "chirpstack") {
+				} else if (platform === "chirpstack" || platform === "packet_forwarder") {
 					// Enable chirpstack-concentratord, disable basicstation
 					actions = [
 						callInitAction('basicstation', 'stop'),
 						callInitAction('basicstation', 'disable'),
 						callInitAction('chirpstack-concentratord', 'enable'),
-						callInitAction('chirpstack-concentratord', 'restart')
+						callInitAction('chirpstack-concentratord', 'restart'),
+						callInitAction('chirpstack-udp-forwarder', 'enable'),
+						callInitAction('chirpstack-udp-forwarder', 'restart')
 					];
 				}
-				
+
 				if (actions.length > 0) {
-					return Promise.all(actions).then(function(results) {
+					return Promise.all(actions).then(function (results) {
 						console.log('Init actions completed:', results);
-					}).catch(function(e) {
+					}).catch(function (e) {
 						console.log('Init actions error:', e);
 					});
 				}
@@ -74,62 +286,17 @@ return view.extend({
 		});
 	},
 
-	render: function() {
-		var m = new form.Map('lorawan-gateway', _('LoRa Configuration'), _('Configure LoRa radio parameters.'));
+	render: function (results) {
+		eui = results[1];
+		var platform = uci.get('lorawan-gateway', ensureSection("radio"), 'platform');
+		var maps = lorawan_gateway_render(platform, eui);
+		if (!Array.isArray(maps)) maps = [maps];
 
-		var loraSid = ensureSection("radio");
-		var loraSection = m.section(form.NamedSection, loraSid, "radio", _("LoRa Settings"));
-		loraSection.addremove = false;
-
-		var o = loraSection.option(form.Flag, "enabled", _("Enable LoRa functionality"));
-		o.rmempty = false;
-		o.default = "1";
-
-		o = loraSection.option(form.ListValue, "platform", _("Platform Type"));
-		o.value("basicstation", "Basic Station");
-		o.value("chirpstack", "ChirpStack");
-		o.default = "basicstation";
-
-		// add button to configure network settings based on platform
-		o = loraSection.option(form.Button, '_configure_network', _('Configure Network'));
-		o.inputstyle = 'action';
-		o.inputtitle = _('Configure Network');
-		o.onclick = function(ev, section_id) {
-			var self = this; // 'this' refers to the view instance
-			// Save and apply configuration before navigating
-			self.handleSaveApply(ev, 'apply').then(function() {
-				// Get the platform value after save
-				var selectEl = document.getElementById('widget.cbid.lorawan-gateway.' + section_id + '.platform');
-				var platform = selectEl ? selectEl.value : uci.get('lorawan-gateway', section_id, 'platform');
-				if (platform == "basicstation") {
-					location.href = L.url('admin/network/lorawan-basicstation/general');
-				} else if (platform == "chirpstack") {
-					location.href = L.url('admin/chirpstack/concentratord');
-				}
-			}).catch(function(e) {
-				console.log('Save and apply error:', e);
-			});
-		};
-
-		// Navigation buttons
-		var navSection = m.section(form.NamedSection, 'ui', 'navigation', _('Navigation'));
-		navSection.anonymous = true;
-		navSection.addremove = false;
-
-		o = navSection.option(form.Button, '_rs485', _('Go to RS485 Configuration'));
-		o.inputstyle = 'action';
-		o.inputtitle = _('RS485');
-		o.onclick = function() {
-			location.href = L.url('admin/lorawan-gateway/rs485');
-		};
-
-		o = navSection.option(form.Button, '_log', _('Go to Log Viewer'));
-		o.inputstyle = 'action';
-		o.inputtitle = _('Logs');
-		o.onclick = function() {
-			location.href = L.url('admin/lorawan-gateway/log');
-		};
-
-		return m.render();
-	}
+		return Promise.all(maps.map(m => m.render())).then(function (nodes) {
+			var div = document.createElement('div');
+			div.id = 'lorawan-gateway-wrapper';
+			nodes.forEach(node => div.appendChild(node));
+			return div;
+		});
+	},
 });

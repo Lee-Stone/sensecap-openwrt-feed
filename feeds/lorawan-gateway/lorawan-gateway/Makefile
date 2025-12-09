@@ -13,7 +13,7 @@ define Package/lorawan-gateway
 	SECTION:=lorawan gateway
 	CATEGORY:=LoRaWAN Gateway
 	TITLE:=LoRaWAN Gateway Configuration
-	DEPENDS:=
+	DEPENDS:= +chirpstack-concentratord +chirpstack-udp-forwarder-single +basicstation
 endef
 
 define Package/lorawan-gateway/description
@@ -27,6 +27,7 @@ endef
 define Package/lorawan-gateway/install
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_CONF) ./files/lorawan-gateway.config $(1)/etc/config/lorawan-gateway
+	$(INSTALL_CONF) ./files/basicstation.config $(1)/etc/config/basicstation
 endef
 
 define Build/Compile

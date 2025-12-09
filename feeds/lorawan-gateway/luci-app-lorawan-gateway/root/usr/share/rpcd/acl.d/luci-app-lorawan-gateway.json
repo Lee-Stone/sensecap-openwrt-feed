@@ -5,6 +5,9 @@
 			"file": {
 				"/tmp/lorawan-gateway/log": [
 					"read"
+				],
+				"/etc/device_eui": [
+					"read"
 				]
 			},
 			"ubus": {
@@ -13,7 +16,10 @@
 				]
 			},
 			"uci": [
-				"lorawan-gateway"
+				"lorawan-gateway",
+				"basicstation",
+				"chirpstack-concentratord",
+				"chirpstack-udp-forwarder"
 			]
 		},
 		"write": {
@@ -23,7 +29,10 @@
 				]
 			},
 			"uci": [
-				"lorawan-gateway"
+				"lorawan-gateway",
+				"basicstation",
+				"chirpstack-concentratord",
+				"chirpstack-udp-forwarder"
 			]
 		}
 	}
