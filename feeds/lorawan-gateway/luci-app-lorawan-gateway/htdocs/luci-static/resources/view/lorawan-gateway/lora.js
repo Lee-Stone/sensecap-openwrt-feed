@@ -6,9 +6,10 @@
 'require ui';
 'require dom';
 'require fs';
-'require view.lorawan-gateway.lora-platform.basicstation as basic_station';
+'require view.lorawan-gateway.lora-platform.basicstation as basicStation';
 'require view.lorawan-gateway.lora-platform.chirpstack as chirpstack';
-'require view.lorawan-gateway.lora-platform.packetforwarder as packet_forwarder';
+'require view.lorawan-gateway.lora-platform.packetforwarder as packetForwarder';
+'require lorawan-gateway.regions as regions';
 
 var eui = '';
 var callInitAction = rpc.declare({
@@ -18,102 +19,13 @@ var callInitAction = rpc.declare({
 	expect: { result: false }
 });
 
-const options = {
-	regions: [
-		{
-			id: "AS923",
-			name: "AS923",
-			channelPlans: [
-				{ id: "as923", name: "AS923 - Standard channels + 923.6, 923.8, ... 924.6" },
-			],
-		},
-		{
-			id: "AS923_2",
-			name: "AS923-2",
-			channelPlans: [
-				{ id: "as923_2", name: "AS923-2 - Standard channels + 921.8, 922.0, ... 922.8" },
-			],
-		},
-		{
-			id: "AS923_3",
-			name: "AS923-3",
-			channelPlans: [
-				{ id: "as923_3", name: "AS923-3 - Standard channels + 917.0, 917.2, ... 918.0" },
-			],
-		},
-		{
-			id: "AS923_4",
-			name: "AS923-4",
-			channelPlans: [
-				{ id: "as923_4", name: "AS923-4 - Standard channels + 917.7, 917.9, ... 918.7" },
-			],
-		},
-		{
-			id: "AU915",
-			name: "AU915",
-			channelPlans: [
-				{ id: "au915_0", name: "AU915 - Channels 0-7 + 64" },
-				{ id: "au915_1", name: "AU915 - Channels 8-15 + 65" },
-				{ id: "au915_2", name: "AU915 - Channels 16-23 + 66" },
-				{ id: "au915_3", name: "AU915 - Channels 24-31 + 67" },
-				{ id: "au915_4", name: "AU915 - Channels 32-39 + 68" },
-				{ id: "au915_5", name: "AU915 - Channels 40-47 + 69" },
-				{ id: "au915_6", name: "AU915 - Channels 48-55 + 70" },
-				{ id: "au915_7", name: "AU915 - Channels 56-63 + 71" },
-			],
-		},
-		{
-			id: "EU868",
-			name: "EU868",
-			channelPlans: [
-				{ id: "eu868", name: "EU868 - Standard channels + 867.1, 867.3, ... 867.9" },
-			]
-		},
-		{
-			id: "IN865",
-			name: "IN865",
-			channelPlans: [
-				{ id: "in865", name: "IN865 - Standard channels" },
-			],
-		},
-		{
-			id: "KR920",
-			name: "KR920",
-			channelPlans: [
-				{ id: "kr920", name: "KR920 - Standard channels" },
-			],
-		},
-		{
-			id: "RU864",
-			name: "RU864",
-			channelPlans: [
-				{ id: "ru864", name: "RU864 - Standard channels" },
-			],
-		},
-		{
-			id: "US915",
-			name: "US915",
-			channelPlans: [
-				{ id: "us915_0", name: "US915 - Channels 0-7 + 64" },
-				{ id: "us915_1", name: "US915 - Channels 8-15 + 65" },
-				{ id: "us915_2", name: "US915 - Channels 16-23 + 66" },
-				{ id: "us915_3", name: "US915 - Channels 24-31 + 67" },
-				{ id: "us915_4", name: "US915 - Channels 32-39 + 68" },
-				{ id: "us915_5", name: "US915 - Channels 40-47 + 69" },
-				{ id: "us915_6", name: "US915 - Channels 48-55 + 70" },
-				{ id: "us915_7", name: "US915 - Channels 56-63 + 71" },
-			],
-		},
-	],
-};
-
 function ensureSection(type) {
 	var section = uci.sections("lorawan-gateway", type)[0];
 	return section ? section[".name"] : uci.add("lorawan-gateway", type);
 }
 
 function handleSwitchPlatform(platform) {
-	var maps = lorawan_gateway_render(platform)
+	var maps = lorawanGatewayRender(platform)
 	if (!Array.isArray(maps)) maps = [maps];
 
 	return Promise.all(maps.map(m => m.render())).then(LuCI.prototype.bind(nodes => {
@@ -124,7 +36,7 @@ function handleSwitchPlatform(platform) {
 	}, this))
 }
 
-function lorawan_gateway_render(platform_cur) {
+function lorawanGatewayRender(platform_cur) {
 	var platform_map;
 
 	var concentratordSections = uci.sections("chirpstack-concentratord", "sx1302");
@@ -161,27 +73,12 @@ function lorawan_gateway_render(platform_cur) {
 	o = loraSection.option(form.ListValue, 'channel_plan', _('Channel-plan'), _('Select the channel-plan to use. This must be supported by the selected shield.'));
 	o.forcewrite = true;
 
-	for (const region of options.regions) {
-		for (const channelPlan of region.channelPlans) {
-			o.value(channelPlan.id, channelPlan.name);
-		}
-	}
+	regions.channelPlanRender(o);
 
 	o.write = function (section_id, value) {
 		// Save channel_plan to lorawan-gateway config
 		uci.set('lorawan-gateway', section_id, 'channel_plan', value);
-
-		var regionId;
-		for (const region of options.regions) {
-			for (const channelPlan of region.channelPlans) {
-				if (channelPlan.id === value) {
-					regionId = region.id;
-				}
-			}
-		}
-		uci.set("chirpstack-concentratord", concentratordSections[0]['.name'], "channel_plan", value);
-		uci.set("chirpstack-concentratord", concentratordSections[0]['.name'], "region", regionId);
-
+		regions.setLoRaRegion(value);
 	}
 	// platform
 	var platform = loraSection.option(form.ListValue, "platform", _("Platform Type"));
@@ -196,11 +93,11 @@ function lorawan_gateway_render(platform_cur) {
 	};
 	switch (platform_cur) {
 		case "basic_station": {
-			platform_map = basic_station.view();
+			platform_map = basicStation.view();
 			break;
 		}
 		case "packet_forwarder": {
-			platform_map = packet_forwarder.view();
+			platform_map = packetForwarder.view();
 			break;
 		}
 		case "chirpstack": {
@@ -208,7 +105,7 @@ function lorawan_gateway_render(platform_cur) {
 			break;
 		}
 		default: {
-			platform_map = basic_station.view();
+			platform_map = basicStation.view();
 		}
 	}
 	if (platform_map) {
@@ -289,7 +186,7 @@ return view.extend({
 	render: function (results) {
 		eui = results[1];
 		var platform = uci.get('lorawan-gateway', ensureSection("radio"), 'platform');
-		var maps = lorawan_gateway_render(platform, eui);
+		var maps = lorawanGatewayRender(platform, eui);
 		if (!Array.isArray(maps)) maps = [maps];
 
 		return Promise.all(maps.map(m => m.render())).then(function (nodes) {
