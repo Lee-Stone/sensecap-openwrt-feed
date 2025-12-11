@@ -29,9 +29,17 @@
 			"path": "lorawan-gateway/rs485"
 		}
 	},
+	"admin/lorawan-gateway/cellular": {
+		"title": "Cellular Configuration",
+		"order": 4,
+		"action": {
+			"type": "view",
+			"path": "lorawan-gateway/cellular"
+		}
+	},
 	"admin/lorawan-gateway/log": {
 		"title": "Log Viewer",
-		"order": 4,
+		"order": 5,
 		"action": {
 			"type": "view",
 			"path": "lorawan-gateway/log"
