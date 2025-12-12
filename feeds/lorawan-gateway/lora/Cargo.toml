@@ -1,0 +1,12 @@
+[package]
+name = "radio_init"
+version = "1.0.0"
+edition = "2021"
+
+[[bin]]
+name = "radio_init"
+path = "src/main.rs"
+
+[dependencies]
+gpio-cdev = "0.6"
+anyhow = "1"

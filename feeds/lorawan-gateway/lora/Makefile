@@ -4,16 +4,19 @@ PKG_NAME:=lora
 PKG_VERSION:=1.0
 PKG_RELEASE:=1
 
+PKG_BUILD_DEPENDS:=rust/host
+
 PKG_MAINTAINER:=ruiqian tang <ruiqian.tang@seeed.cc>
 PKG_LICENSE:=Apache-2.0
 
 include $(INCLUDE_DIR)/package.mk
+include $(TOPDIR)/feeds/packages/lang/rust/rust-package.mk
 
 define Package/lora
 	SECTION:=gateway
 	CATEGORY:=Gateway
 	TITLE:=LoRa Configuration
-	DEPENDS:= +chirpstack-concentratord +chirpstack-udp-forwarder-single +basicstation
+	DEPENDS:= +chirpstack-concentratord +chirpstack-udp-forwarder-single +basicstation +libc +libstdcpp
 endef
 
 define Package/lora/description
@@ -28,10 +31,18 @@ define Package/lora/install
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_CONF) ./files/lora.config $(1)/etc/config/lora
 	$(INSTALL_CONF) ./files/basicstation.config $(1)/etc/config/basicstation
+
+	$(INSTALL_DIR) $(1)/usr/bin/
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/bin/radio_init $(1)/usr/bin/radio_init
 endef
 
-define Build/Compile
-	# Nothing to do
+RUST_PKG_LOCKED:=0
+
+define Build/Prepare
+	rm -rf $(PKG_BUILD_DIR)
+	mkdir -p $(PKG_BUILD_DIR)
+	$(CP) ./Cargo.toml $(PKG_BUILD_DIR)/
+	$(CP) ./src $(PKG_BUILD_DIR)/
 endef
 
 $(eval $(call BuildPackage,lora))
