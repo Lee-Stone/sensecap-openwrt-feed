@@ -2,13 +2,12 @@ name: Build Recomputer-Gateway Firmware
 
 on:
   workflow_dispatch:
-  schedule:
-  - cron: '0 0 * * 1'
-  push:
-    branches: [ master ]
-  pull_request:
-    branches: [ master ]
-    types: [closed]
+    inputs:
+      tag_name:
+        description: 'release name'
+        required: true
+        default: 'v1.0.0'
+        type: string
   release:
     types: [ created ]
 
@@ -88,3 +87,16 @@ jobs:
           name: recomputer-gateway
           path: |
             ./openwrt/bin/targets/armsr/armv8/openwrt-armsr-armv8-generic-rootfs.tar.gz
+
+      - name: Create Release
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.event.inputs.tag_name }}
+          name: ${{ github.event.inputs.tag_name }}
+          files: |
+            ./openwrt/bin/targets/armsr/armv8/openwrt-armsr-armv8-generic-rootfs.tar.gz
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
