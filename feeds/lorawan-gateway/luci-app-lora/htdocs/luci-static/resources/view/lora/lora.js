@@ -43,6 +43,11 @@ function lorawanGatewayRender(platform_cur) {
 	var stationSections = uci.sections("basicstation", "station");
 
 	var m = new form.Map('lora', _('LoRa Configuration'), _('Configure LoRa radio parameters.'));
+	m.chain('basicstation');
+	m.chain('chirpstack');
+	m.chain('chirpstack-concentratord');
+	m.chain('chirpstack-udp-forwarder');
+	m.chain('chirpstack-mqtt-forwarder');
 	var maps = [m];
 
 	var loraSid = ensureSection("radio");
@@ -150,7 +155,9 @@ return view.extend({
 						callInitAction('chirpstack-concentratord', 'stop'),
 						callInitAction('chirpstack-concentratord', 'disable'),
 						callInitAction('chirpstack-udp-forwarder', 'stop'),
-						callInitAction('chirpstack-udp-forwarder', 'disable')
+						callInitAction('chirpstack-udp-forwarder', 'disable'),
+						callInitAction('chirpstack-mqtt-forwarder', 'stop'),
+						callInitAction('chirpstack-mqtt-forwarder', 'disable')
 					];
 				} else if (platform === "basic_station") {
 					// Enable basicstation, disable chirpstack-concentratord
@@ -159,6 +166,9 @@ return view.extend({
 						callInitAction('chirpstack-concentratord', 'disable'),
 						callInitAction('chirpstack-udp-forwarder', 'stop'),
 						callInitAction('chirpstack-udp-forwarder', 'disable'),
+						callInitAction('chirpstack-mqtt-forwarder', 'stop'),
+						callInitAction('chirpstack-mqtt-forwarder', 'disable'),
+						callInitAction('basicstation', 'start'),
 						callInitAction('basicstation', 'enable'),
 						callInitAction('basicstation', 'restart')
 					];
@@ -170,8 +180,19 @@ return view.extend({
 						callInitAction('chirpstack-concentratord', 'enable'),
 						callInitAction('chirpstack-concentratord', 'restart'),
 						callInitAction('chirpstack-udp-forwarder', 'enable'),
-						callInitAction('chirpstack-udp-forwarder', 'restart')
+						callInitAction('chirpstack-udp-forwarder', 'restart'),
 					];
+					if (platform === "chirpstack") {
+						actions.push(
+							callInitAction('chirpstack-mqtt-forwarder', 'enable'),
+							callInitAction('chirpstack-mqtt-forwarder', 'restart')
+						);
+					} else {
+						actions.push(
+							callInitAction('chirpstack-mqtt-forwarder', 'stop'),
+							callInitAction('chirpstack-mqtt-forwarder', 'disable')
+						);
+					}
 				}
 
 				if (actions.length > 0) {

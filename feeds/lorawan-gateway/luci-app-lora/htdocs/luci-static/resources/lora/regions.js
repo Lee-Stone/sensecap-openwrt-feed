@@ -335,8 +335,14 @@ return baseclass.extend({
 			uci.set("basicstation", sectionName, "usedBy", "rfconf0");
 		}
 
+		// Avoid deleting sections while editing: it may trigger ubus "not found"
+		// when users change channel-plan multiple times before Save & Apply.
 		for (var k = newLuts.length; k < txlutSections.length; k++) {
-			uci.remove("basicstation", txlutSections[k]['.name']);
+			var sid = txlutSections[k]['.name'];
+			uci.unset("basicstation", sid, "usedBy");
+			uci.unset("basicstation", sid, "rfPower");
+			uci.unset("basicstation", sid, "paGain");
+			uci.unset("basicstation", sid, "pwrIdx");
 		}
 	},
 
@@ -352,8 +358,8 @@ return baseclass.extend({
 
 		uci.set("chirpstack-concentratord", `@sx1302[0]`, "channel_plan", channelPlan);
 		uci.set("chirpstack-concentratord", `@sx1302[0]`, "region", regionId);
-        uci.set("chirpstack-mqtt-forwarder", '@mqtt[0]', 'topic_prefix', channelPlan);
-        uci.set("chirpstack", '@network[0]', 'enabled_regions', [channelPlan]);
+        uci.set("chirpstack-mqtt-forwarder", '@mqtt[0]', "topic_prefix", channelPlan);
+        uci.set("chirpstack", '@network[0]', "enabled_regions", [channelPlan]);
 
 		this.setBasicStationRegion(regionId);
 	}
