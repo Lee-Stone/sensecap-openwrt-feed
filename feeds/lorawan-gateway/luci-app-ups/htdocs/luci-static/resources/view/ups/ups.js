@@ -18,7 +18,11 @@ return view.extend({
         s.anonymous = true;
         s.addremove = false;
 
-        o = s.option(form.DynamicList, 'commands', _('Commands'));
+        o = s.option(form.DynamicList, 'commands', _('Power Outage Commands'));
+
+        o = s.option(form.FileUpload, 'script', _('Power Outage Scripts'));
+        o.optional = true;
+        o.rmempty = true;
 
         return m.render();
     }

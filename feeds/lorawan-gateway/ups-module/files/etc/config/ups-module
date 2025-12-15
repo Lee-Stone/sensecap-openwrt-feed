@@ -1,5 +1,5 @@
 config ups 'cmd'
-    list commands '/usr/bin/shutdown -h now'
+    list commands 'echo "Power Outage"'
 
 config log 'ui'
     option auto_refresh '1'
