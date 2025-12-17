@@ -36,7 +36,7 @@ file wget
 
     ```bash
     git clone <repository_url>
-    cd recomputer-gateway
+    cd sensecap-openwrt-feed
     ```
 
 2.  **Initialize Submodules:**
@@ -45,12 +45,7 @@ file wget
 
     ```bash
     git submodule update --init --recursive
-    ```
-
-    *Note: If you prefer to manually clone OpenWrt or if the submodule update fails, you can clone it directly:*
-    ```bash
-    # Only if submodule update fails
-    git clone -b openwrt-24.10 https://github.com/openwrt/openwrt.git
+    git clone https://github.com/openwrt/openwrt.git
     ```
 
 3.  **Setup Configuration and Feeds:**

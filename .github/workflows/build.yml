@@ -57,6 +57,7 @@ jobs:
       - name: Set up OpenWrt build environment
         run: |
           git submodule update --init --recursive
+          git clone https://github.com/openwrt/openwrt.git
           cd openwrt && rm -r feeds.conf.default && cp ../feeds.conf.default feeds.conf.default
           cat feeds.conf.default
 
