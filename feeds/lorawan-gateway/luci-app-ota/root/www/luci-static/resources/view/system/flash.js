@@ -12,35 +12,35 @@ var isReadonlyView = !L.hasViewPermission();
 var callSystemValidateFirmwareImage = rpc.declare({
 	object: 'system',
 	method: 'validate_firmware_image',
-	params: [ 'path' ],
+	params: ['path'],
 	expect: { '': { valid: false, forcable: true } }
 });
 
 function findStorageSize(procmtd, procpart) {
 	var kernsize = 0, rootsize = 0, wholesize = 0;
 
-	procmtd.split(/\n/).forEach(function(ln) {
+	procmtd.split(/\n/).forEach(function (ln) {
 		var match = ln.match(/^mtd\d+: ([0-9a-f]+) [0-9a-f]+ "(.+)"$/),
-		    size = match ? parseInt(match[1], 16) : 0;
+			size = match ? parseInt(match[1], 16) : 0;
 
 		switch (match ? match[2] : '') {
-		case 'linux':
-		case 'firmware':
-			if (size > wholesize)
-				wholesize = size;
-			break;
+			case 'linux':
+			case 'firmware':
+				if (size > wholesize)
+					wholesize = size;
+				break;
 
-		case 'kernel':
-		case 'kernel0':
-			kernsize = size;
-			break;
+			case 'kernel':
+			case 'kernel0':
+				kernsize = size;
+				break;
 
-		case 'rootfs':
-		case 'rootfs0':
-		case 'ubi':
-		case 'ubi0':
-			rootsize = size;
-			break;
+			case 'rootfs':
+			case 'rootfs0':
+			case 'ubi':
+			case 'ubi0':
+				rootsize = size;
+				break;
 		}
 	});
 
@@ -49,7 +49,7 @@ function findStorageSize(procmtd, procpart) {
 	else if (kernsize > 0 && rootsize > kernsize)
 		return kernsize + rootsize;
 
-	procpart.split(/\n/).forEach(function(ln) {
+	procpart.split(/\n/).forEach(function (ln) {
 		var match = ln.match(/^\s*\d+\s+\d+\s+(\d+)\s+(\S+)$/);
 		if (match) {
 			var size = parseInt(match[1], 10);
@@ -66,19 +66,22 @@ function findStorageSize(procmtd, procpart) {
 var mapdata = { actions: {}, config: {} };
 
 return view.extend({
-	load: function() {
+	load: function () {
 		var tasks = [
 			L.resolveDefault(fs.stat('/lib/upgrade/platform.sh'), {}),
 			fs.trimmed('/proc/sys/kernel/hostname'),
 			fs.trimmed('/proc/mtd'),
 			fs.trimmed('/proc/partitions'),
-			fs.trimmed('/proc/mounts')
+			fs.trimmed('/proc/mounts'),
+			fs.exec('/bin/sh', ['-c', "head -1 /version.txt | awk '{print $NF}'"]).then(function (res) {
+				return res.code === 0 && res.stdout ? res.stdout.trim() : 'Unknown';
+			}).catch(function () { return 'Unknown'; })
 		];
 
 		return Promise.all(tasks);
 	},
 
-	handleBackup: function(ev) {
+	handleBackup: function (ev) {
 		var form = E('form', {
 			method: 'post',
 			action: L.env.cgi_base + '/cgi-backup',
@@ -91,7 +94,7 @@ return view.extend({
 		form.parentNode.removeChild(form);
 	},
 
-	handleFirstboot: function(ev) {
+	handleFirstboot: function (ev) {
 		if (!confirm(_('Do you really want to erase all settings?')))
 			return;
 
@@ -100,18 +103,18 @@ return view.extend({
 		]);
 
 		/* Currently the sysupgrade rpc call will not return, hence no promise handling */
-		fs.exec('/sbin/firstboot', [ '-r', '-y' ]);
+		fs.exec('/sbin/firstboot', ['-r', '-y']);
 
 		ui.awaitReconnect('192.168.1.1', 'openwrt.lan');
 	},
 
-	handleRestore: function(ev) {
+	handleRestore: function (ev) {
 		return ui.uploadFile('/tmp/backup.tar.gz', ev.target)
-			.then(L.bind(function(btn, res) {
+			.then(L.bind(function (btn, res) {
 				btn.firstChild.data = _('Checking archive…');
-				return fs.exec('/bin/tar', [ '-tzf', '/tmp/backup.tar.gz' ]);
+				return fs.exec('/bin/tar', ['-tzf', '/tmp/backup.tar.gz']);
 			}, this, ev.target))
-			.then(L.bind(function(btn, res) {
+			.then(L.bind(function (btn, res) {
 				if (res.code != 0) {
 					ui.addNotification(null, E('p', _('The uploaded backup archive is not readable')));
 					return fs.remove('/tmp/backup.tar.gz');
@@ -119,34 +122,34 @@ return view.extend({
 
 				ui.showModal(_('Apply backup?'), [
 					E('p', _('The uploaded backup archive appears to be valid and contains the files listed below. Press "Continue" to restore the backup and reboot, or "Cancel" to abort the operation.')),
-					E('pre', {}, [ res.stdout ]),
+					E('pre', {}, [res.stdout]),
 					E('div', { 'class': 'right' }, [
 						E('button', {
 							'class': 'btn',
-							'click': ui.createHandlerFn(this, function(ev) {
+							'click': ui.createHandlerFn(this, function (ev) {
 								return fs.remove('/tmp/backup.tar.gz').finally(ui.hideModal);
 							})
-						}, [ _('Cancel') ]), ' ',
+						}, [_('Cancel')]), ' ',
 						E('button', {
 							'class': 'btn cbi-button-action important',
 							'click': ui.createHandlerFn(this, 'handleRestoreConfirm', btn)
-						}, [ _('Continue') ])
+						}, [_('Continue')])
 					])
 				]);
 			}, this, ev.target))
-			.catch(function(e) { ui.addNotification(null, E('p', e.message)) })
-			.finally(L.bind(function(btn, input) {
+			.catch(function (e) { ui.addNotification(null, E('p', e.message)) })
+			.finally(L.bind(function (btn, input) {
 				btn.firstChild.data = _('Download firmware...');
 			}, this, ev.target));
 	},
 
-	handleRestoreConfirm: function(btn, ev) {
-		return fs.exec('/sbin/sysupgrade', [ '--restore-backup', '/tmp/backup.tar.gz' ])
-			.then(L.bind(function(btn, res) {
+	handleRestoreConfirm: function (btn, ev) {
+		return fs.exec('/sbin/sysupgrade', ['--restore-backup', '/tmp/backup.tar.gz'])
+			.then(L.bind(function (btn, res) {
 				if (res.code != 0) {
 					ui.addNotification(null, [
 						E('p', _('The restore command failed with code %d').format(res.code)),
-						res.stderr ? E('pre', {}, [ res.stderr ]) : ''
+						res.stderr ? E('pre', {}, [res.stderr]) : ''
 					]);
 					L.raise('Error', 'Unpack failed');
 				}
@@ -154,7 +157,7 @@ return view.extend({
 				btn.firstChild.data = _('Rebooting…');
 				return fs.exec('/sbin/reboot');
 			}, this, ev.target))
-			.then(L.bind(function(res) {
+			.then(L.bind(function (res) {
 				if (res.code != 0) {
 					ui.addNotification(null, E('p', _('The reboot command failed with code %d').format(res.code)));
 					L.raise('Error', 'Reboot failed');
@@ -166,114 +169,126 @@ return view.extend({
 
 				ui.awaitReconnect(window.location.host, '192.168.1.1', 'openwrt.lan');
 			}, this))
-			.catch(function(e) { ui.addNotification(null, E('p', e.message)) })
-			.finally(function() { btn.firstChild.data = _('Download firmware...') });
+			.catch(function (e) { ui.addNotification(null, E('p', e.message)) })
+			.finally(function () { btn.firstChild.data = _('Download firmware...') });
 	},
 
 
-handleOTAUpgrade: function (ev) {
-var btn = ev.target;
-btn.disabled = true;
-btn.firstChild.data = _('Checking...');
+	handleOTAUpgrade: function (ev) {
+		var btn = ev.target;
+		btn.disabled = true;
+		btn.firstChild.data = _('Checking...');
 
-return fs.exec('/bin/ota', ['check'])
-.then(L.bind(function (btn, res) {
-btn.disabled = false;
-btn.firstChild.data = _('Download firmware...');
+		return fs.exec('/bin/ota', ['check'])
+			.then(L.bind(function (btn, res) {
+				btn.disabled = false;
+				btn.firstChild.data = _('Download firmware...');
 
-if (res.code != 0) {
-ui.addNotification(null, E('p', _('OTA check failed: ') + (res.stderr || 'Unknown error')));
-return Promise.reject('OTA check failed');
-}
+				if (res.code != 0) {
+					ui.addNotification(null, E('p', _('OTA check failed: ') + (res.stderr || 'Unknown error')));
+					return Promise.reject('OTA check failed');
+				}
 
-// Get custom URL from the form field
-var urlInput = document.querySelector('input[data-widget-id*="ota_url"]');
-var customUrl = urlInput ? urlInput.value.trim() : '';
-var displayUrl = customUrl || 'https://github.com/is-qian/recomputer-gateway/releases/latest/download/openwrt-armsr-armv8-generic-rootfs.tar.gz';
+				// Get custom URL from the form field
 
-var self = this;
-ui.showModal(_('OTA Firmware Upgrade'), [
-E('div', {}, 'Ready to download firmware from:'),
-E('pre', { 'style': 'margin: 10px 0; padding: 5px; background: #f5f5f5; overflow-x: auto;' }, displayUrl),
-E('div', { 'class': 'right' }, [
-E('button', {
-'class': 'btn',
-'click': ui.hideModal
-}, [_('Cancel')]),
-' ',
-E('button', {
-'class': 'btn cbi-button-action important',
-'click': function() {
-ui.hideModal();
-self.handleOTADownload(btn, customUrl);
-}
-}, [_('Download')])
-])
-]);
-}, this, btn))
-.catch(function (e) {
-btn.disabled = false;
-btn.firstChild.data = _('Download firmware...');
-ui.addNotification(null, E('p', e.message || e));
-});
-},
-handleOTADownload: function (btn, customUrl) {
-var self = this;
+				// Get custom URL from the form field - try multiple selectors
+				var urlInput = document.querySelector('input[data-widget-id*="ota_url"]') ||
+					document.querySelector('input[id*="ota_url"]') ||
+					document.querySelector('input[name*="ota_url"]') ||
+					document.getElementById('widget.cbid.system.actions.ota_url');
 
-// Use custom URL or get from form
-if (!customUrl) {
-// Try multiple selectors to find the URL input
-var urlInput = document.querySelector('input[data-widget-id*="ota_url"]') ||
-               document.querySelector('input[id*="ota_url"]') ||
-               document.querySelector('input[name*="ota_url"]') ||
-               document.getElementById('ota_url');
+				var customUrl = '';
+				if (urlInput && urlInput.value) {
+					customUrl = urlInput.value.trim();
+				}
 
-if (urlInput) {
-customUrl = urlInput.value.trim();
-}
-}
+				console.log('[OTA] URL input element:', urlInput);
+				console.log('[OTA] Custom URL value:', customUrl);
+				var displayUrl = customUrl || 'https://github.com/is-qian/recomputer-gateway/releases/latest/download/openwrt-armsr-armv8-generic-rootfs.tar.gz';
 
-// If still no URL, use default
-if (!customUrl) {
-customUrl = 'https://github.com/is-qian/recomputer-gateway/releases/latest/download/openwrt-armsr-armv8-generic-rootfs.tar.gz';
-}
+				var self = this;
+				ui.showModal(_('OTA Firmware Upgrade'), [
+					E('div', {}, 'Ready to download firmware from:'),
+					E('pre', { 'style': 'margin: 10px 0; padding: 5px; background: #f5f5f5; overflow-x: auto;' }, displayUrl),
+					E('div', { 'class': 'right' }, [
+						E('button', {
+							'class': 'btn',
+							'click': ui.hideModal
+						}, [_('Cancel')]),
+						' ',
+						E('button', {
+							'class': 'btn cbi-button-action important',
+							'click': function () {
+								ui.hideModal();
+								self.handleOTADownload(btn, customUrl);
+							}
+						}, [_('Download')])
+					])
+				]);
+			}, this, btn))
+			.catch(function (e) {
+				btn.disabled = false;
+				btn.firstChild.data = _('Download firmware...');
+				ui.addNotification(null, E('p', e.message || e));
+			});
+	},
+	handleOTADownload: function (btn, customUrl) {
+		var self = this;
 
-var progressModal = ui.showModal(_('Downloading firmware...'), [
-E('p', { 'class': 'spinning' }, _('Starting download...')),
-E('div', { 'id': 'ota-progress' }, '0%'),
-E('div', { 'class': 'right', 'style': 'margin-top: 10px;' }, [
-E('button', {
-'class': 'btn',
-'click': L.bind(function () {
-fs.exec('/bin/ota', ['cancel']).then(function () {
-ui.hideModal();
-ui.addNotification(null, E('p', _('Download cancelled')));
-});
-}, this)
-}, [_('Cancel Download')])
-])
-]);
+		// Use custom URL or get from form
+		if (!customUrl) {
+			// Try multiple selectors to find the URL input
+			var urlInput = document.querySelector('input[data-widget-id*="ota_url"]') ||
+				document.querySelector('input[id*="ota_url"]') ||
+				document.querySelector('input[name*="ota_url"]') ||
+				document.getElementById('ota_url');
 
-// Use native XHR to start download with custom URL - avoid rpcd timeout
-var xhr = new XMLHttpRequest();
-xhr.open('GET', '/cgi-bin/ota-start?url=' + encodeURIComponent(customUrl) + '&_=' + Date.now(), true);
-xhr.onload = function () {
-if (xhr.status === 200) {
-// Wait 2 seconds for download to initialize before polling
-setTimeout(function () {
-self.pollOTAProgress(btn);
-}, 2000);
-} else {
-ui.hideModal();
-ui.addNotification(null, E('p', _('Failed to start download')));
-}
-};
-xhr.onerror = function () {
-ui.hideModal();
-ui.addNotification(null, E('p', _('Network error starting download')));
-};
-xhr.send();
-},
+			if (urlInput) {
+				customUrl = urlInput.value.trim();
+			}
+		}
+
+		// If still no URL, use default
+		if (!customUrl) {
+			customUrl = 'https://github.com/is-qian/recomputer-gateway/releases/latest/download/openwrt-armsr-armv8-generic-rootfs.tar.gz';
+		}
+
+		var progressModal = ui.showModal(_('Downloading firmware...'), [
+			E('p', { 'class': 'spinning' }, _('Starting download...')),
+			E('div', { 'id': 'ota-progress' }, '0%'),
+			E('div', { 'class': 'right', 'style': 'margin-top: 10px;' }, [
+				E('button', {
+					'class': 'btn',
+					'click': L.bind(function () {
+						fs.exec('/bin/ota', ['cancel']).then(function () {
+							ui.hideModal();
+							ui.addNotification(null, E('p', _('Download cancelled')));
+						});
+					}, this)
+				}, [_('Cancel Download')])
+			])
+		]);
+
+		// Use native XHR to start download with custom URL - avoid rpcd timeout
+		var xhr = new XMLHttpRequest();
+		xhr.open('GET', '/cgi-bin/ota-start?url=' + encodeURIComponent(customUrl) + '&_=' + Date.now(), true);
+		xhr.onload = function () {
+			if (xhr.status === 200) {
+				// Wait 2 seconds for download to initialize before polling
+				setTimeout(function () {
+					self.pollOTAProgress(btn);
+				}, 2000);
+			} else {
+				ui.hideModal();
+				ui.addNotification(null, E('p', _('Failed to start download')));
+			}
+		};
+		xhr.onerror = function () {
+			ui.hideModal();
+			ui.addNotification(null, E('p', _('Network error starting download')));
+		};
+		xhr.send();
+	},
 	pollOTAProgress: function (btn) {
 		var self = this;
 		var checkProgress = function () {
@@ -313,8 +328,16 @@ xhr.send();
 						} else if (data.status === 'downloading') {
 							// Continue polling
 							setTimeout(checkProgress, 1000);
+						} else if (data.status === 'failed') {
+							// Download failed
+							ui.hideModal();
+							ui.addNotification(null, E('p', { 'class': 'alert-message error' }, _('Download failed. Please check your network connection and try again.')));
+						} else if (data.status === 'cancelled') {
+							// Download cancelled
+							ui.hideModal();
+							ui.addNotification(null, E('p', _('Download cancelled')));
 						} else {
-							// idle or error
+							// idle or other status
 							ui.hideModal();
 							ui.addNotification(null, E('p', _('Download not in progress')));
 						}
@@ -363,55 +386,55 @@ xhr.send();
 				ui.addNotification(null, E('p', _('Upgrade error: %s').format(e.message || e)));
 			});
 	},
-		handleBlock: function(hostname, ev) {
-			var mtdblock = dom.parent(ev.target, '.cbi-section').querySelector('[data-name="mtdselect"] select');
-			var mtdnumber = mtdblock.value;
-			var mtdname = mtdblock.selectedOptions[0].text.replace(/([^a-zA-Z0-9]+)/g, '-');
-			var form = E('form', {
-				'method': 'post',
-				'action': L.env.cgi_base + '/cgi-download',
-				'enctype': 'application/x-www-form-urlencoded'
-			}, [
-				E('input', { 'type': 'hidden', 'name': 'sessionid', 'value': rpc.getSessionID() }),
-				E('input', { 'type': 'hidden', 'name': 'path',      'value': '/dev/mtdblock%d'.format(mtdnumber) }),
-				E('input', { 'type': 'hidden', 'name': 'filename',  'value': '%s.mtd%d.%s.bin'.format(hostname, mtdnumber, mtdname) })
-			]);
-	
-			ev.currentTarget.parentNode.appendChild(form);
-	
-			form.submit();
-			form.parentNode.removeChild(form);
-		},
-	
-		handleSysupgrade: function(storage_size, has_rootfs_data, ev) {
-			return ui.uploadFile('/tmp/firmware.bin', ev.target.firstChild)
-				.then(L.bind(function(btn, reply) {
-					btn.firstChild.data = _('Checking image…');
-	
-					ui.showModal(_('Checking image…'), [
-						E('span', { 'class': 'spinning' }, _('Verifying the uploaded image file.'))
-					]);
-	
-					return callSystemValidateFirmwareImage('/tmp/firmware.bin')
-					.then(function(res) { return [ reply, res ]; });
+	handleBlock: function (hostname, ev) {
+		var mtdblock = dom.parent(ev.target, '.cbi-section').querySelector('[data-name="mtdselect"] select');
+		var mtdnumber = mtdblock.value;
+		var mtdname = mtdblock.selectedOptions[0].text.replace(/([^a-zA-Z0-9]+)/g, '-');
+		var form = E('form', {
+			'method': 'post',
+			'action': L.env.cgi_base + '/cgi-download',
+			'enctype': 'application/x-www-form-urlencoded'
+		}, [
+			E('input', { 'type': 'hidden', 'name': 'sessionid', 'value': rpc.getSessionID() }),
+			E('input', { 'type': 'hidden', 'name': 'path', 'value': '/dev/mtdblock%d'.format(mtdnumber) }),
+			E('input', { 'type': 'hidden', 'name': 'filename', 'value': '%s.mtd%d.%s.bin'.format(hostname, mtdnumber, mtdname) })
+		]);
+
+		ev.currentTarget.parentNode.appendChild(form);
+
+		form.submit();
+		form.parentNode.removeChild(form);
+	},
+
+	handleSysupgrade: function (storage_size, has_rootfs_data, ev) {
+		return ui.uploadFile('/tmp/firmware.bin', ev.target.firstChild)
+			.then(L.bind(function (btn, reply) {
+				btn.firstChild.data = _('Checking image…');
+
+				ui.showModal(_('Checking image…'), [
+					E('span', { 'class': 'spinning' }, _('Verifying the uploaded image file.'))
+				]);
+
+				return callSystemValidateFirmwareImage('/tmp/firmware.bin')
+					.then(function (res) { return [reply, res]; });
 			}, this, ev.target))
-			.then(L.bind(function(btn, reply) {
-				return fs.exec('/sbin/sysupgrade', [ '--test', '/tmp/firmware.bin' ])
-					.then(function(res) { reply.push(res); return reply; });
+			.then(L.bind(function (btn, reply) {
+				return fs.exec('/sbin/sysupgrade', ['--test', '/tmp/firmware.bin'])
+					.then(function (res) { reply.push(res); return reply; });
 			}, this, ev.target))
-			.then(L.bind(function(btn, res) {
+			.then(L.bind(function (btn, res) {
 				/* sysupgrade opts table  [0]:checkbox element [1]:check condition [2]:args to pass */
 				var opts = {
-				    keep : [ E('input', { type: 'checkbox' }), false, '-n' ],
-				    force : [ E('input', { type: 'checkbox' }), true, '--force' ],
-				    skip_orig : [ E('input', { type: 'checkbox' }), true, '-u' ],
-				    backup_pkgs : [ E('input', { type: 'checkbox' }), true, '-k' ],
-				    },
-				    is_valid = res[1].valid,
-				    is_forceable = res[1].forceable,
-				    allow_backup = res[1].allow_backup,
-				    is_too_big = (storage_size > 0 && res[0].size > storage_size),
-				    body = [];
+					keep: [E('input', { type: 'checkbox' }), false, '-n'],
+					force: [E('input', { type: 'checkbox' }), true, '--force'],
+					skip_orig: [E('input', { type: 'checkbox' }), true, '-u'],
+					backup_pkgs: [E('input', { type: 'checkbox' }), true, '-k'],
+				},
+					is_valid = res[1].valid,
+					is_forceable = res[1].forceable,
+					allow_backup = res[1].allow_backup,
+					is_too_big = (storage_size > 0 && res[0].size > storage_size),
+					body = [];
 
 				body.push(E('p', _("The flash image was uploaded. Below is the checksum and file size listed, compare them with the original file to ensure data integrity. <br /> Click 'Continue' below to start the flash procedure.")));
 				body.push(E('ul', {}, [
@@ -462,7 +485,7 @@ xhr.send();
 				var cntbtn = E('button', {
 					'class': 'btn cbi-button-action important',
 					'click': ui.createHandlerFn(this, 'handleSysupgradeConfirm', btn, opts),
-				}, [ _('Continue') ]);
+				}, [_('Continue')]);
 
 				if (res[2].code != 0) {
 					body.push(E('p', { 'class': 'alert-message danger' }, E('label', {}, [
@@ -485,17 +508,17 @@ xhr.send();
 				body.push(E('div', { 'class': 'right' }, [
 					E('button', {
 						'class': 'btn',
-						'click': ui.createHandlerFn(this, function(ev) {
+						'click': ui.createHandlerFn(this, function (ev) {
 							return fs.remove('/tmp/firmware.bin').finally(ui.hideModal);
 						})
-					}, [ _('Cancel') ]), ' ', cntbtn
+					}, [_('Cancel')]), ' ', cntbtn
 				]));
 
-				opts.force[0].addEventListener('change', function(ev) {
+				opts.force[0].addEventListener('change', function (ev) {
 					cntbtn.disabled = !ev.target.checked;
 				});
 
-				opts.keep[0].addEventListener('change', function(ev) {
+				opts.keep[0].addEventListener('change', function (ev) {
 					opts.skip_orig[0].disabled = !ev.target.checked;
 					opts.backup_pkgs[0].disabled = !ev.target.checked;
 
@@ -503,13 +526,13 @@ xhr.send();
 
 				ui.showModal(_('Flash image?'), body);
 			}, this, ev.target))
-			.catch(function(e) { ui.addNotification(null, E('p', e.message)) })
-			.finally(L.bind(function(btn) {
+			.catch(function (e) { ui.addNotification(null, E('p', e.message)) })
+			.finally(L.bind(function (btn) {
 				btn.firstChild.data = _('Flash image...');
 			}, this, ev.target));
 	},
 
-	handleSysupgradeConfirm: function(btn, opts, ev) {
+	handleSysupgradeConfirm: function (btn, opts, ev) {
 		btn.firstChild.data = _('Flashing…');
 
 		ui.showModal(_('Flashing…'), [
@@ -534,48 +557,49 @@ xhr.send();
 			ui.awaitReconnect('192.168.1.1', 'openwrt.lan');
 	},
 
-	handleBackupList: function(ev) {
-		return fs.exec('/sbin/sysupgrade', [ '--list-backup' ]).then(function(res) {
+	handleBackupList: function (ev) {
+		return fs.exec('/sbin/sysupgrade', ['--list-backup']).then(function (res) {
 			if (res.code != 0) {
 				ui.addNotification(null, [
 					E('p', _('The sysupgrade command failed with code %d').format(res.code)),
-					res.stderr ? E('pre', {}, [ res.stderr ]) : ''
+					res.stderr ? E('pre', {}, [res.stderr]) : ''
 				]);
 				L.raise('Error', 'Sysupgrade failed');
 			}
 
 			ui.showModal(_('Backup file list'), [
 				E('p', _('Below is the determined list of files to backup. It consists of changed configuration files marked by opkg, essential base files and the user defined backup patterns.')),
-				E('ul', {}, (res.stdout || '').trim().split(/\n/).map(function(ln) { return E('li', {}, ln) })),
+				E('ul', {}, (res.stdout || '').trim().split(/\n/).map(function (ln) { return E('li', {}, ln) })),
 				E('div', { 'class': 'right' }, [
 					E('button', {
 						'class': 'btn',
 						'click': ui.hideModal
-					}, [ _('Dismiss') ])
+					}, [_('Dismiss')])
 				])
 			], 'cbi-modal');
 		});
 	},
 
-	handleBackupSave: function(m, ev) {
-		return m.save(function() {
+	handleBackupSave: function (m, ev) {
+		return m.save(function () {
 			return fs.write('/etc/sysupgrade.conf', mapdata.config.editlist.trim().replace(/\r\n/g, '\n') + '\n');
-		}).then(function() {
+		}).then(function () {
 			ui.addNotification(null, E('p', _('Contents have been saved.')), 'info');
-		}).catch(function(e) {
+		}).catch(function (e) {
 			ui.addNotification(null, E('p', _('Unable to save contents: %s').format(e)));
 		});
 	},
 
-	render: function(rpc_replies) {
+	render: function (rpc_replies) {
 		var has_sysupgrade = (rpc_replies[0].type == 'file'),
-		    hostname = rpc_replies[1],
-		    procmtd = rpc_replies[2],
-		    procpart = rpc_replies[3],
-		    procmounts = rpc_replies[4],
-		    has_rootfs_data = (procmtd.match(/"rootfs_data"/) != null) || (procmounts.match("overlayfs:\/overlay \/ ") != null),
-		    storage_size = findStorageSize(procmtd, procpart),
-		    m, s, o, ss;
+			hostname = rpc_replies[1],
+			procmtd = rpc_replies[2],
+			procpart = rpc_replies[3],
+			procmounts = rpc_replies[4],
+			currentVersion = (typeof rpc_replies[5] === 'string') ? rpc_replies[5] : 'Unknown',
+			has_rootfs_data = (procmtd.match(/"rootfs_data"/) != null) || (procmounts.match("overlayfs:\/overlay \/ ") != null),
+			storage_size = findStorageSize(procmtd, procpart),
+			m, s, o, ss;
 
 		m = new form.JSONMap(mapdata, _('Flash operations'));
 		m.tabbed = true;
@@ -609,24 +633,27 @@ xhr.send();
 		o.onclick = L.bind(this.handleRestore, this);
 
 
-			o = s.option(form.SectionValue, 'actions', form.NamedSection, 'actions', 'actions', _('Upgrade'),
-				_('Check for updates and upgrades'));
+		o = s.option(form.SectionValue, 'actions', form.NamedSection, 'actions', 'actions', _('Upgrade'),
+			_('Check for updates and upgrades'));
 		ss = o.subsection;
 
-			o = ss.option(form.Button, 'ota_upgrade', _('Apply Firmware'),
-				_('Check for firmware updates and upgrade if necessary.'));
+		o = ss.option(form.Button, 'ota_upgrade', _('Apply Firmware'),
+			_('Check for firmware updates and upgrade if necessary.'));
 		o.inputstyle = 'action important';
 		o.inputtitle = _('Download firmware...');
 		o.onclick = L.bind(this.handleOTAUpgrade, this);
 
-			o = ss.option(form.Value, 'ota_url', _('Firmware URL'));
-			o.default = 'https://github.com/is-qian/recomputer-gateway/releases/latest/download/openwrt-armsr-armv8-generic-rootfs.tar.gz';
-			o.placeholder = 'https://...';
+		o = ss.option(form.Value, 'ota_url', _('Firmware URL'));
+		o.default = 'https://github.com/is-qian/recomputer-gateway/releases/latest/download/openwrt-armsr-armv8-generic-rootfs.tar.gz';
+		o.placeholder = 'https://...';
+
+		o = ss.option(form.DummyValue, 'current_version', _('Current Version'));
+		o.default = currentVersion;
 
 
 
 		var mtdblocks = [];
-		procmtd.split(/\n/).forEach(function(ln) {
+		procmtd.split(/\n/).forEach(function (ln) {
 			var match = ln.match(/^mtd(\d+): .+ "(.+?)"$/);
 			if (match)
 				mtdblocks.push(match[1], match[2]);
@@ -639,7 +666,7 @@ xhr.send();
 			o = ss.option(form.ListValue, 'mtdselect', _('Choose mtdblock'));
 
 			for (var i = 0; i < mtdblocks.length; i += 2)
-				o.value(mtdblocks[i], mtdblocks[i+1]);
+				o.value(mtdblocks[i], mtdblocks[i + 1]);
 
 			o = ss.option(form.Button, 'mtddownload', _('Download mtdblock'));
 			o.inputstyle = 'action important';
@@ -651,15 +678,15 @@ xhr.send();
 
 
 		s = m.section(form.NamedSection, 'config', 'config', _('Configuration'), _('This is a list of shell glob patterns for matching files and directories to include during sysupgrade. Modified files in /etc/config/ and certain other configurations are automatically preserved.'));
-		s.render = L.bind(function(view /*, ... */) {
+		s.render = L.bind(function (view /*, ... */) {
 			return form.NamedSection.prototype.render.apply(this, this.varargs(arguments, 1))
-				.then(L.bind(function(node) {
+				.then(L.bind(function (node) {
 					node.appendChild(E('div', { 'class': 'cbi-page-actions' }, [
 						E('button', {
 							'class': 'cbi-button cbi-button-save',
 							'click': ui.createHandlerFn(view, 'handleBackupSave', this.map),
 							'disabled': isReadonlyView || null
-						}, [ _('Save') ])
+						}, [_('Save')])
 					]));
 
 					return node;
@@ -674,7 +701,7 @@ xhr.send();
 		o = s.option(form.TextValue, 'editlist');
 		o.forcewrite = true;
 		o.rows = 30;
-		o.load = function(section_id) {
+		o.load = function (section_id) {
 			return L.resolveDefault(fs.read('/etc/sysupgrade.conf'), '');
 		};
 

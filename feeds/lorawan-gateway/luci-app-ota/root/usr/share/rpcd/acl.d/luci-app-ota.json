@@ -11,6 +11,13 @@
                                 ],
                                 "/var/run/ota/ota.log": [
                                         "read"
+                                ],
+                                "/var/run/ota/*": [
+                                        "read",
+                                        "list"
+                                ],
+                                "/version.txt": [
+                                        "read"
                                 ]
                         },
                         "ubus": {
@@ -23,19 +30,7 @@
                 },
                 "write": {
                         "file": {
-                                "/bin/ota check": [
-                                        "exec"
-                                ],
-                                "/bin/ota download": [
-                                        "exec"
-                                ],
-                                "/bin/ota progress": [
-                                        "exec"
-                                ],
-                                "/bin/ota cancel": [
-                                        "exec"
-                                ],
-                                "/bin/ota upgrade": [
+                                "/bin/sh": [
                                         "exec"
                                 ],
                                 "/bin/tar": [
@@ -52,6 +47,12 @@
                                 ],
                                 "/tmp/firmware.img.tar.gz.progress": [
                                         "write"
+                                ],
+                                "/var/run/ota/*": [
+                                        "write"
+                                ],
+                                "/bin/ota": [
+                                        "exec"
                                 ]
                         },
                         "ubus": {
