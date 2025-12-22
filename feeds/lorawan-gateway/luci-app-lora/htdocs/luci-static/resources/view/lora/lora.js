@@ -42,7 +42,7 @@ function lorawanGatewayRender(platform_cur) {
 	var concentratordSections = uci.sections("chirpstack-concentratord", "sx1302");
 	var stationSections = uci.sections("basicstation", "station");
 
-	var m = new form.Map('lora', _('LoRa Configuration'), _('Configure LoRa radio parameters.'));
+	var m = new form.Map('lora', _('LoRa Network'), _('Configure LoRa radio parameters.'));
 	m.chain('basicstation');
 	m.chain('chirpstack');
 	m.chain('chirpstack-concentratord');
@@ -87,16 +87,7 @@ function lorawanGatewayRender(platform_cur) {
 	}
 
 	// channels
-	o = loraSection.option(form.ListValue, 'channel_plan', _('Channel-plan'), _('Select the channel-plan to use. This must be supported by the selected shield.'));
-	o.forcewrite = true;
-
-	regions.channelPlanRender(o);
-
-	o.write = function (section_id, value) {
-		// Save channel_plan to lora config
-		uci.set('lora', section_id, 'channel_plan', value);
-		regions.setLoRaRegion(value);
-	}
+	// channelView.render(loraSection);
 
 	switch (platform_cur) {
 		case "basic_station": {
