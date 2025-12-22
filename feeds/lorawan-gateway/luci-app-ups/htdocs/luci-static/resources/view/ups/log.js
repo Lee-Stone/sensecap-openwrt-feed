@@ -4,6 +4,7 @@
 'require uci';
 'require fs';
 'require poll';
+'require ui';
 
 function ensureSection(type) {
 	var section = uci.sections("ups-module", type)[0];
@@ -15,7 +16,10 @@ return view.extend({
 		return Promise.all([
 			uci.load('ups-module'),
 			L.resolveDefault(fs.read('/tmp/ups/log'), '')
-		]);
+		]).then(function(data) {
+			ensureSection('ui');
+			return data;
+		});
 	},
 
 	render: function(data) {
@@ -33,53 +37,71 @@ return view.extend({
 		o = logSection.option(form.Value, 'buffer_limit', _('Maximum buffer lines'));
 		o.datatype = 'uinteger';
 		o.placeholder = '2000';
+		o.default = '2000';
 
 		o = logSection.option(form.DynamicList, 'watch_keywords', _('Keyword highlighting'));
 		o.placeholder = 'join-accept';
 
-		var logView = logSection.option(form.TextValue, '_log', _('Recent Logs'));
-		logView.rows = 18;
-		logView.wrap = 'off';
-		logView.monospace = true;
-		logView.cfgvalue = function() {
-			return logPayload || _('No logs available to display');
+		var logView = logSection.option(form.DummyValue, '_log');
+		logView.renderWidget = function(section_id, option_id, cfgvalue) {
+			return E('div', {
+				'id': 'log_view',
+				'style': 'width:100%; height:600px; overflow:auto; border:1px solid #ccc; padding:5px; font-family:monospace; white-space:pre; background:#fff; color:#333; resize:vertical;'
+			}, _('Loading logs...'));
 		};
-		logView.write = function() {};
 
-		return m.render();
-	},
+		var updateLog = function(content) {
+			var view = document.getElementById('log_view');
+			if (!view) return;
 
-	handleSaveApply: null,
-	handleSave: null,
-	handleReset: null,
+			var buffer_limit = parseInt(uci.get('ups-module', 'ui', 'buffer_limit')) || 2000;
+			var keywords = uci.get('ups-module', 'ui', 'watch_keywords') || [];
+			if (typeof keywords === 'string') keywords = keywords.split(/\s+/);
 
-	addFooter: function() {
-		var auto_refresh = uci.get('ups-module', 'ui', 'auto_refresh');
+			var lines = (content || '').trim().split('\n');
 
-		// Set textarea to readonly after DOM is ready
-		requestAnimationFrame(function() {
-			var textarea = document.querySelector('textarea[id*="_log"]');
-			if (textarea) {
-				textarea.setAttribute('readonly', 'readonly');
-				textarea.style.cursor = 'text';
+			if (lines.length > buffer_limit) {
+				lines = lines.slice(lines.length - buffer_limit);
 			}
-		});
 
-		if (auto_refresh === '1') {
-			poll.add(L.bind(function() {
-				return fs.read('/tmp/ups/log').then(L.bind(function(logContent) {
-					var textarea = document.querySelector('textarea[id*="_log"]');
-					if (textarea) {
-						var scrolledToBottom = (textarea.scrollHeight - textarea.scrollTop <= textarea.clientHeight + 50);
-						textarea.value = (logContent || '').trim() || _('No logs available to display');
-						if (scrolledToBottom) {
-							textarea.scrollTop = textarea.scrollHeight;
-						}
-					}
-				}, this)).catch(function(err) {
-					console.error('Failed to read log file:', err);
+			var htmlContent = lines.map(function(line) {
+				var highlighted = line.replace(/[&<>"']/g, function(m) {
+					return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m];
 				});
-			}, this), 1);
-		}
+				
+				if (Array.isArray(keywords)) {
+					keywords.forEach(function(kw) {
+						if (kw) {
+							var re = new RegExp('(' + kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+							highlighted = highlighted.replace(re, '<span style="background-color:#ffeb3b; color:black; font-weight:bold">$1</span>');
+						}
+					});
+				}
+				return highlighted;
+			}).join('\n');
+
+			var wasScrolledBottom = view.scrollHeight - view.scrollTop <= view.clientHeight + 50;
+			view.innerHTML = htmlContent || _('No logs available to display');
+
+			if (wasScrolledBottom) {
+				view.scrollTop = view.scrollHeight;
+			}
+		};
+
+		poll.add(function() {
+			var auto_refresh = uci.get('ups-module', 'ui', 'auto_refresh');
+			if (auto_refresh === '0') return;
+
+			return fs.read('/tmp/ups/log').then(function(res) {
+				updateLog(res);
+			}).catch(function() { });
+		}, 5);
+
+		return m.render().then(function(node) {
+			setTimeout(function() {
+				updateLog(logPayload);
+			}, 0);
+			return node;
+		});
 	}
 });
