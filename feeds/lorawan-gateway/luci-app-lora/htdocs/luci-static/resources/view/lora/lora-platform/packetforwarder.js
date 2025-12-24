@@ -5,48 +5,119 @@
 
 return view.extend({
     view: function () {
-        // ENABLE chirpstack-concentratord sx1302
-        var gatewaySections = uci.sections("chirpstack-concentratord", "sx1302");
-        uci.set("chirpstack-concentratord", gatewaySections[0]['.name'], "enabled", "1");
 
-        var mMap = new form.Map('chirpstack-udp-forwarder');
-        // ENABLE chirpstack-udp-forwarder global enabled flag 
-        var globalSections = uci.sections("chirpstack-udp-forwarder", "global");
-        if (globalSections.length > 0) {
-            uci.set("chirpstack-udp-forwarder", globalSections[0]['.name'], "enabled", "1");
-        }
+        var mMap = new form.Map('packetforwarder');
 
-        var s = mMap.section(form.TypedSection, 'server', _('Advanced Settings'));
+        var s = mMap.section(form.TypedSection, 'gateway', _('Advanced Settings'));
         s.anonymous = true;
-        s.addremove = true;
-
-        // Safely get server value from lora config and set it directly
-        var radioSection = uci.sections("lora", "radio")[0];
-        var serverValue = radioSection ? uci.get('lora', radioSection['.name'], 'server') : '';
-
-        // Get or create a server section in chirpstack-udp-forwarder
-        var serverSections = uci.sections("chirpstack-udp-forwarder", "server");
-        var serverSectionId = serverSections[0]['.name'];
-        uci.set("chirpstack-udp-forwarder", serverSectionId, "server", serverValue);
+        // s.addremove = true;
+        s.tab('general', _('General Settings'));
+        s.tab('interval', _('Intervals Settings'));
+        s.tab('beacon', _('Beacon Settings'));
+        s.tab('gps', _('GPS Information'));
+        s.tab('forward', _('Forward Rules'));
 
         // server
-        var o = s.option(form.Value, 'server', _('Server'), _('Server handling UDP data, example: localhost:1700'));
-        o.validate = function (section_id, value) {
-            if (value.length > 0) {
-                return true;
-            }
+        var server = s.taboption("general", form.Value, "server_address", _("Server Address"));
+        server.value("eu1.cloud.thethings.network", "eu1.cloud.thethings.network");
+        server.value("nam1.cloud.thethings.network", "nam1.cloud.thethings.network");
+        server.default="eu1.cloud.thethings.network";
+        server.rmempty= false;
+        server.datatype='or(ipaddr,hostname)';
 
-            return 'Please enter a hostname:port';
-        }
-        o.write = function (section_id, value) {
-            // Save server to chirpstack-udp-forwarder config
-            uci.set('chirpstack-udp-forwarder', section_id, 'server', value);
-            // Also save to lora config for consistency
-            var radioSection = uci.sections("lora", "radio")[0];
-            if (radioSection) {
-                uci.set('lora', radioSection['.name'], 'server', value);
+        var port_up = s.taboption("general", form.Value, "serv_port_up", _("Port Up"));
+        port_up.default = "1700";
+        port_up.rmempty = false;
+        port_up.datatype = "port";
+
+        var port_down = s.taboption("general", form.Value, "serv_port_down", _("Port Down"));
+        port_down.default = "1700";
+        port_down.rmempty = false;
+        port_down.datatype = "port";
+
+        // interval tab
+        var keepalive_interval = s.taboption("interval", form.Value, "keepalive_interval", _("Keep Alive Interval (s)"))
+        keepalive_interval.default = "5"
+        keepalive_interval.rmempty = false;
+        keepalive_interval.datatype = "uinteger"
+
+        var push_timeout_ms = s.taboption("interval", form.Value, "push_timeout_ms", _("Push Timeout (ms)"))
+        push_timeout_ms.default = "950"
+        push_timeout_ms.datatype = "uinteger"
+
+
+        var stat_interval = s.taboption("interval", form.Value, "stat_interval", _("Statistic Interval (s)"))
+        stat_interval.default = "30";
+        stat_interval.datatype = "uinteger";
+
+        // beacon tab
+        var beacon_period_validate = function (section_id, value) {
+            if (value > 0 && value < 6) {
+                return "Invalid value for Beacon period, must be >= 6 seconds.";
+            } else {
+                return true
             }
         }
+
+        var beacon_period = s.taboption("beacon", form.Value, "beacon_period", _("Beacon Period"), _("Setting this value to 0 disables class B beacon."))
+        beacon_period.default = "0";  /* disable class B beacon */
+        beacon_period.datatype = "uinteger"
+        beacon_period.validate = beacon_period_validate
+
+        var beacon_freq_hz = s.taboption("beacon", form.Value, "beacon_freq_hz", _("Beacon Frequency (Hz)"))
+        beacon_freq_hz.datatype = "uinteger"
+
+        var beacon_freq_nb = s.taboption("beacon", form.Value, "beacon_freq_nb", _("Beacon Channel Number"))
+        beacon_freq_nb.datatype = "uinteger"
+
+        var beacon_freq_step = s.taboption("beacon", form.Value, "beacon_freq_step", _("Beacon Frequency Step"))
+        beacon_freq_step.datatype = "uinteger"
+
+        var beacon_datarate = s.taboption("beacon", form.ListValue, "beacon_datarate", _("Beacon Datarate"))
+        beacon_datarate.value(8, "SF8")
+        beacon_datarate.value(9, "SF9")
+        beacon_datarate.value(10, "SF10")
+        beacon_datarate.value(12, "SF12")
+        beacon_datarate.default = "9"
+
+        var beacon_bw_hz = s.taboption("beacon", form.Value, "beacon_bw_hz", _("Beacon Bandwidth"))
+        beacon_bw_hz.default = "125000";
+        beacon_bw_hz.datatype = "uinteger"
+
+        var beacon_power = s.taboption("beacon", form.Value, "beacon_power", _("Beacon Tx Power"))
+        beacon_power.default = "14"
+        beacon_power.datatype = "float"
+
+        var beacon_infodesc = s.taboption("beacon", form.Value, "beacon_infodesc", _("Beaconing information descriptor"))
+        beacon_infodesc.default = "0"
+
+        // gps tab
+        var fake_gps = s.taboption("gps", form.Flag, "fake_gps", _("Fake GPS"))
+
+        var latitude = s.taboption("gps", form.Value, "ref_latitude", _("Latitude"))
+        latitude.datatype = "float"
+
+        var longitude = s.taboption("gps", form.Value, "ref_longitude", _("Longitude"))
+        longitude.datatype = "float"
+
+        var altitude = s.taboption("gps", form.Value, "ref_altitude", _("Altitude"))
+        altitude.datatype = "float"
+
+        // forward tab
+        var forward_crc_valid = s.taboption("forward", form.ListValue, "forward_crc_valid", _("Forward When CRC Valid"))
+        forward_crc_valid.value("true", "True")
+        forward_crc_valid.value("false", "False")
+        forward_crc_valid.default = "true"
+
+        var forward_crc_error = s.taboption("forward", form.ListValue, "forward_crc_error", _("Forward When CRC Error"))
+        forward_crc_error.value("true", "True")
+        forward_crc_error.value("false", "False")
+        forward_crc_error.default = "false"
+
+        var forward_crc_disabled = s.taboption("forward", form.ListValue, "forward_crc_disabled", _("Forward When CRC Disabled"))
+        forward_crc_disabled.value("true", "True")
+        forward_crc_disabled.value("false", "False")
+        forward_crc_disabled.default = "false"
 
         return mMap;
     }

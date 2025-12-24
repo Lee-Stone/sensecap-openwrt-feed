@@ -5,41 +5,14 @@
 
 
 return view.extend({
-    view: function() {
-        // set EUI to chirpstack-concentratord gateway id
-        var gatewaySections = uci.sections("chirpstack-concentratord", "global");
-        uci.set("chirpstack-concentratord", gatewaySections[0]['.name'], "enabled", "1");
+    view: function(loraSection) {
 
-        var mMap = new form.Map('chirpstack-udp-forwarder');
-        // set true to chirpstack-udp-forwarder global enabled flag 
-        var globalSections = uci.sections("chirpstack-udp-forwarder", "global");
-        if (globalSections.length > 0) {
-            uci.set("chirpstack-udp-forwarder", globalSections[0]['.name'], "enabled", "1");
-        }
-
-        var s = mMap.section(form.TypedSection, 'server', _('Advanced Settings'));
-        s.anonymous = true;
-        s.addremove = true;
-
-        var serverSections = uci.sections("chirpstack-udp-forwarder", "server");
-        var serverSectionId = serverSections[0]['.name'];
-        uci.set("chirpstack-udp-forwarder", serverSectionId, "server", 'localhost:1700');
-        var o = s.option(form.Value, 'server', _('Server'), _('Server handling UDP data, example: localhost:1700'));
-        o.validate = function (section_id, value) {
-            if (value.length > 0) {
-                return true;
-            }
-
-            return 'Please enter a hostname:port';
-        }
-
-        var link = s.option(form.DummyValue, '_link', _(' '));
+        var link = loraSection.option(form.DummyValue, '_link', _(' '));
         link.rawhtml = true;
         link.cfgvalue = function(section_id) {
             var baseURL = window.location.hostname;
             return '<a href="http://' + baseURL + ':8080" target="_blank">' + _('Open ChirpStack Application Server') + '</a>';
         };
-
-        return mMap;
+        return loraSection;
     }
 });

@@ -16,7 +16,7 @@ define Package/lora
 	SECTION:=gateway
 	CATEGORY:=Gateway
 	TITLE:=LoRa Configuration
-	DEPENDS:= +chirpstack-concentratord +chirpstack-udp-forwarder-single +basicstation_ubus +libc +libstdcpp
+	DEPENDS:= +basicstation_ubus +lora_pkt_fwd +libc +libstdcpp
 endef
 
 define Package/lora/description

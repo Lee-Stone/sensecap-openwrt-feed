@@ -23,14 +23,19 @@
             },
             "uci": [
                 "lora",
-                "lora-basicstation",
-                "chirpstack",
-                "chirpstack-concentratord",
-                "chirpstack-udp-forwarder",
-                "chirpstack-mqtt-forwarder"
+                "basicstation",
+                "packetforwarder"
             ]
         },
         "write": {
+            "file": {
+                "/etc/init.d/lora_pkt_fwd": [
+                    "exec"
+                ],
+                "/etc/init.d/station": [
+                    "exec"
+                ]
+            },
             "ubus": {
                 "uci": [
                     "set",
@@ -42,11 +47,8 @@
             },
             "uci": [
                 "lora",
-                "lora-basicstation",
-                "chirpstack",
-                "chirpstack-concentratord",
-                "chirpstack-udp-forwarder",
-                "chirpstack-mqtt-forwarder"
+                "basicstation",
+                "packetforwarder"
             ]
         }
     }

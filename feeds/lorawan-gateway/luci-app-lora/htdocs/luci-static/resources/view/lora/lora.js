@@ -9,7 +9,6 @@
 'require view.lora.lora-platform.basicstation as basicStation';
 'require view.lora.lora-platform.chirpstack as chirpstack';
 'require view.lora.lora-platform.packetforwarder as packetForwarder';
-'require lora.regions as regions';
 
 var eui = '';
 var callInitAction = rpc.declare({
@@ -39,15 +38,12 @@ function handleSwitchPlatform(platform) {
 function lorawanGatewayRender(platform_cur) {
 	var platform_map;
 
-	var concentratordSections = uci.sections("chirpstack-concentratord", "sx1302");
+	var pkfSections = uci.sections("packetforwarder", "gateway");
 	var stationSections = uci.sections("basicstation", "station");
 
 	var m = new form.Map('lora', _('LoRa Network'), _('Configure LoRa radio parameters.'));
 	m.chain('basicstation');
-	m.chain('chirpstack');
-	m.chain('chirpstack-concentratord');
-	m.chain('chirpstack-udp-forwarder');
-	m.chain('chirpstack-mqtt-forwarder');
+	m.chain('packetforwarder');
 	var maps = [m];
 
 	var loraSid = ensureSection("radio");
@@ -82,7 +78,7 @@ function lorawanGatewayRender(platform_cur) {
 		// Save EUI to lora config
 		uci.set('lora', section_id, 'eui', value);
 		var eui_value = value.replace(/:/g, '');
-		uci.set("chirpstack-concentratord", concentratordSections[0]['.name'], "gateway_id", eui_value);
+		uci.set("packetforwarder", pkfSections[0]['.name'], "gateway_ID", eui_value);
 		uci.set("basicstation", stationSections[0]['.name'], "routerid", value);
 	}
 
@@ -99,7 +95,7 @@ function lorawanGatewayRender(platform_cur) {
 			break;
 		}
 		case "chirpstack": {
-			platform_map = chirpstack.view();
+			platform_map = chirpstack.view(loraSection);
 			break;
 		}
 		default: {
@@ -120,83 +116,8 @@ return view.extend({
 			uci.load('lora'),
 			fs.read('/etc/device_eui').catch(function () { return ''; }),
 			uci.load('basicstation'),
-			uci.load('chirpstack'),
-			uci.load('chirpstack-concentratord'),
-			uci.load('chirpstack-udp-forwarder'),
-			uci.load('chirpstack-mqtt-forwarder')
+			uci.load('packetforwarder'),
 		]);
-	},
-
-	handleSaveApply: function (ev, mode) {
-		var self = this;
-		return this.super('handleSaveApply', [ev, mode]).then(function () {
-			// Reload UCI configuration to get the latest saved values
-			return uci.load('lora').then(function () {
-
-				var enabled = uci.get('lora', ensureSection("radio"), 'enabled');
-				var platform = uci.get('lora', ensureSection("radio"), 'platform');
-
-				console.log('LoRa enabled:', enabled, 'platform:', platform);
-
-				var actions = [];
-
-				// If LoRa functionality is disabled, stop and disable all services
-				if (enabled != '1') {
-					actions = [
-						callInitAction('basicstation', 'stop'),
-						callInitAction('basicstation', 'disable'),
-						callInitAction('chirpstack-concentratord', 'stop'),
-						callInitAction('chirpstack-concentratord', 'disable'),
-						callInitAction('chirpstack-udp-forwarder', 'stop'),
-						callInitAction('chirpstack-udp-forwarder', 'disable'),
-						callInitAction('chirpstack-mqtt-forwarder', 'stop'),
-						callInitAction('chirpstack-mqtt-forwarder', 'disable')
-					];
-				} else if (platform === "basic_station") {
-					// Enable basicstation, disable chirpstack-concentratord
-					actions = [
-						callInitAction('chirpstack-concentratord', 'stop'),
-						callInitAction('chirpstack-concentratord', 'disable'),
-						callInitAction('chirpstack-udp-forwarder', 'stop'),
-						callInitAction('chirpstack-udp-forwarder', 'disable'),
-						callInitAction('chirpstack-mqtt-forwarder', 'stop'),
-						callInitAction('chirpstack-mqtt-forwarder', 'disable'),
-						callInitAction('basicstation', 'start'),
-						callInitAction('basicstation', 'enable'),
-						callInitAction('basicstation', 'restart')
-					];
-				} else if (platform === "chirpstack" || platform === "packet_forwarder") {
-					// Enable chirpstack-concentratord, disable basicstation
-					actions = [
-						callInitAction('basicstation', 'stop'),
-						callInitAction('basicstation', 'disable'),
-						callInitAction('chirpstack-concentratord', 'enable'),
-						callInitAction('chirpstack-concentratord', 'restart'),
-						callInitAction('chirpstack-udp-forwarder', 'enable'),
-						callInitAction('chirpstack-udp-forwarder', 'restart'),
-					];
-					if (platform === "chirpstack") {
-						actions.push(
-							callInitAction('chirpstack-mqtt-forwarder', 'enable'),
-							callInitAction('chirpstack-mqtt-forwarder', 'restart')
-						);
-					} else {
-						actions.push(
-							callInitAction('chirpstack-mqtt-forwarder', 'stop'),
-							callInitAction('chirpstack-mqtt-forwarder', 'disable')
-						);
-					}
-				}
-
-				if (actions.length > 0) {
-					return Promise.all(actions).then(function (results) {
-						console.log('Init actions completed:', results);
-					}).catch(function (e) {
-						console.log('Init actions error:', e);
-					});
-				}
-			});
-		});
 	},
 
 	render: function (results) {
