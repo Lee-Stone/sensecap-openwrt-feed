@@ -26,7 +26,12 @@ fi
 uci set lora.radio.region="$REGION_MODEM"
 uci set lora.radio.channel_plan="$FREQ_PLAN"
 
-uci commit lora.radio
+uci set packetforwarder.sx130x.region="$REGION_MODEM"
+uci set basicstation.sx130x.region="$REGION_MODEM"
+uci set packetforwarder.sx130x.channel_plan="$FREQ_PLAN"
 
+uci commit lora.radio
+uci commit packetforwarder.sx130x
+uci commit basicstation.sx130x
 
 exit 0

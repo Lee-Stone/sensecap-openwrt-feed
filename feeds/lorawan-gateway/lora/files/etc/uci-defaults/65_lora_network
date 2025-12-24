@@ -23,7 +23,10 @@ fi
 uci set lora.radio.platform="chirpstack"
 
 uci set	lora.radio.eui=$DEFAULT_EUI
-uci set	lora.radio.server='localhost:1700'
+uci set basicstation.station.routerid="$DEFAULT_EUI"
+uci set packetforwarder.gateway.gateway_ID="$DEFAULT_EUI"
 
 uci commit lora
+uci commit basicstation
+uci commit packetforwarder
 exit 0
