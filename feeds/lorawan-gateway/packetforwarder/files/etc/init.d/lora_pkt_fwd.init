@@ -1,0 +1,235 @@
+#!/bin/sh /etc/rc.common
+START=97
+STOP=10
+
+USE_PROCD=1
+
+PROG=/usr/bin/packetforwarder/lora_pkt_fwd
+CONFIGFILE="/tmp/packetforwarder/global_conf.json"
+CHANNELDIR="/etc/packetforwarder/"
+
+parse_sx130x() {
+	local section="$1"
+	if json_select SX130x_conf; then
+		config_get val "$section" com_type
+		[ -n "$val" ] && json_add_string 'com_type' "$val"
+		config_get val "$section" com_path
+		[ -n "$val" ] && json_add_string 'com_path' "$val"
+		json_select ..
+	fi
+}
+
+parse_gateway() {
+	local section="$1"
+	json_add_object 'gateway_conf'
+	config_get val "$section" gateway_ID 'AA555A0000000000'
+	json_add_string 'gateway_ID' "$val"
+	config_get val "$section" server_address 'localhost'
+	json_add_string 'server_address' "$val"
+	config_get val "$section" serv_port_up 1700
+	json_add_int 'serv_port_up' "$val"
+	config_get val "$section" serv_port_down 1700
+	json_add_int 'serv_port_down' "$val"
+	config_get val "$section" keepalive_interval 5
+	json_add_int 'keepalive_interval' "$val"
+	config_get val "$section" stat_interval 30
+	json_add_int 'stat_interval' "$val"
+	config_get val "$section" push_timeout_ms 950
+	json_add_int 'push_timeout_ms' "$val"
+	config_get_bool val "$section" forward_crc_valid 1
+	json_add_boolean 'forward_crc_valid' "$val"
+	config_get_bool val "$section" forward_crc_error 0
+	json_add_boolean 'forward_crc_error' "$val"
+	config_get_bool val "$section" forward_crc_disabled 0
+	json_add_boolean 'forward_crc_disabled' "$val"
+	config_get val "$section" ref_latitude 0.0
+	json_add_double 'ref_latitude' "$val"
+	config_get val "$section" ref_longitude 0.0
+	json_add_double 'ref_longitude' "$val"
+	config_get val "$section" ref_altitude 0
+	json_add_int 'ref_altitude' "$val"
+	config_get val "$section" beacon_period 0
+	json_add_int 'beacon_period' "$val"
+	config_get val "$section" beacon_freq_hz 869525000
+	json_add_int 'beacon_freq_hz' "$val"
+	config_get val "$section" beacon_datarate 9
+	json_add_int 'beacon_datarate' "$val"
+	config_get val "$section" beacon_bw_hz 125000
+	json_add_int 'beacon_bw_hz' "$val"
+	config_get val "$section" beacon_power 14
+	json_add_int 'beacon_power' "$val"
+	config_get val "$section" beacon_infodesc 0
+	json_add_int 'beacon_infodesc' "$val"
+	config_get val "$section" fake_gps 0
+	[ "$val" -eq 1 ] && {
+		config_get val "$section" ref_latitude 0.0
+		json_add_double 'ref_latitude' "$val"
+		config_get val "$section" ref_longitude 0.0
+		json_add_double 'ref_longitude' "$val"
+		config_get val "$section" ref_altitude 0
+		json_add_int 'ref_altitude' "$val"
+	}
+	json_close_object
+}
+
+parse_chirpstack_gateway() {
+	local section="$1"
+	json_add_object 'gateway_conf'
+	config_get val "$section" gateway_ID 'AA555A0000000000'
+	json_add_string 'gateway_ID' "$val"
+	json_add_string 'server_address' "localhost"
+	json_add_int 'serv_port_up' "1700"
+	json_add_int 'serv_port_down' "1700"
+	json_add_int 'keepalive_interval' "5"
+	json_add_int 'stat_interval' "30"
+	json_add_int 'push_timeout_ms' "950"
+	json_add_boolean 'forward_crc_valid' "1"
+	json_add_boolean 'forward_crc_error' "0"
+	json_add_boolean 'forward_crc_disabled' "0"
+	json_add_int 'beacon_period' "0"
+	json_add_int 'beacon_freq_hz' "0"
+	json_add_int 'beacon_datarate' "9"
+	json_add_int 'beacon_bw_hz' "125000"
+	json_add_int 'beacon_power' "14"
+	json_add_int 'beacon_infodesc' "0"
+	json_close_object
+}
+
+process_config() {
+	local platform="$1"
+
+	. /usr/share/libubox/jshn.sh
+	json_init
+	config_load packetforwarder
+
+	local region
+	local plan
+	config_get region sx130x region
+	config_get plan sx130x channel_plan
+
+	local x_file=""
+	local fsb_index=0
+	local base_freq=0
+	local offset0=0
+	local offset1=0
+
+	case "$region" in
+	"US915")
+		case "$plan" in
+		"US_902_928_FSB_1") fsb_index=1 ;;
+		"US_902_928_FSB_2") fsb_index=2 ;;
+		"US_902_928_FSB_3") fsb_index=3 ;;
+		"US_902_928_FSB_4") fsb_index=4 ;;
+		"US_902_928_FSB_5") fsb_index=5 ;;
+		"US_902_928_FSB_6") fsb_index=6 ;;
+		"US_902_928_FSB_7") fsb_index=7 ;;
+		"US_902_928_FSB_8") fsb_index=8 ;;
+		esac
+		if [ "$fsb_index" -gt 0 ]; then
+			x_file="US_902_928_FSB_X"
+			base_freq=902300000
+			offset0=400000
+			offset1=1100000
+		fi
+		;;
+	"AU915")
+		case "$plan" in
+		"AU_915_928_FSB_1") fsb_index=1 ;;
+		"AU_915_928_FSB_2") fsb_index=2 ;;
+		"AU_915_928_FSB_3") fsb_index=3 ;;
+		"AU_915_928_FSB_4") fsb_index=4 ;;
+		"AU_915_928_FSB_5") fsb_index=5 ;;
+		"AU_915_928_FSB_6") fsb_index=6 ;;
+		"AU_915_928_FSB_7") fsb_index=7 ;;
+		"AU_915_928_FSB_8") fsb_index=8 ;;
+		esac
+		if [ "$fsb_index" -gt 0 ]; then
+			x_file="AU_915_928_FSB_X"
+			base_freq=915200000
+			offset0=400000
+			offset1=1100000
+		fi
+		;;
+	"CN470")
+		case "$plan" in
+		"CN_470_510_FSB_1") fsb_index=1 ;;
+		"CN_470_510_FSB_2") fsb_index=2 ;;
+		"CN_470_510_FSB_3") fsb_index=3 ;;
+		"CN_470_510_FSB_4") fsb_index=4 ;;
+		"CN_470_510_FSB_5") fsb_index=5 ;;
+		"CN_470_510_FSB_6") fsb_index=6 ;;
+		"CN_470_510_FSB_7") fsb_index=7 ;;
+		"CN_470_510_FSB_8") fsb_index=8 ;;
+		"CN_470_510_FSB_9") fsb_index=9 ;;
+		"CN_470_510_FSB_10") fsb_index=10 ;;
+		"CN_470_510_FSB_11") fsb_index=11 ;;
+		"CN_470_510_FSB_12") fsb_index=12 ;;
+		esac
+		if [ "$fsb_index" -gt 0 ]; then
+			x_file="CN_470_510_FSB_X"
+			base_freq=470300000
+			offset0=300000
+			offset1=1100000
+		fi
+		;;
+	esac
+
+	if [ -n "$x_file" ]; then
+		json_load_file "${CHANNELDIR}${x_file}.json"
+
+		local step=$(((fsb_index - 1) * 1600000))
+		local freq0=$((base_freq + step + offset0))
+		local freq1=$((base_freq + step + offset1))
+
+		json_select "SX130x_conf"
+		json_select "radio_0"
+		json_add_int "freq" "$freq0"
+		json_select ".."
+		json_select "radio_1"
+		json_add_int "freq" "$freq1"
+		json_select ".."
+		json_select ".."
+	else
+		if [ -n "$plan" ] && [ -f "${CHANNELDIR}${plan}.json" ]; then
+			json_load_file "${CHANNELDIR}${plan}.json"
+		fi
+	fi
+
+	config_foreach parse_sx130x sx130x
+	if [ "$platform" = "packet_forwarder" ]; then
+		config_foreach parse_gateway gateway
+	else
+		config_foreach parse_chirpstack_gateway gateway
+	fi
+
+	json_dump -i >$CONFIGFILE
+}
+
+start_service() {
+	rm -rf /tmp/packetforwarder/
+	mkdir -p /tmp/packetforwarder/
+
+	config_load lora
+	config_get platform radio platform "packet_forwarder"
+	[ "$platform" = "basic_station" ] && {
+		logger "mode: basic_station; lora_pkt_fwd exit !"
+		return
+	}
+
+	process_config "$platform"
+
+	logger "lora_pkt_fwd: Start $CONFIGFILE"
+
+	procd_open_instance
+	procd_set_param command $PROG -c $CONFIGFILE
+	procd_set_param file /etc/config/packetforwarder
+	procd_set_param respawn 3600 5 -1
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+
+	procd_close_instance
+}
+
+stop_service() {
+	logger "lora_pkt_fwd: Stop"
+}
