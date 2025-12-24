@@ -303,5 +303,16 @@ return view.extend({
             });
         });
         return m.render();
-    }
+    },
+
+	handleSaveApply: function(ev) {
+		return this.handleSave(ev).then(function() {
+			return ui.changes.apply(true);
+		}).then(function() {
+			return Promise.all([
+				fs.exec('/etc/init.d/lora_pkt_fwd', ['restart']),
+				fs.exec('/etc/init.d/station', ['restart'])
+			]);
+		});
+	}
 });
