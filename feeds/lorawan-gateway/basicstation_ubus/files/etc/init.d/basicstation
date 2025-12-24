@@ -239,6 +239,13 @@ start_service() {
 	rm -rf /tmp/basicstation/
 	mkdir -p /tmp/basicstation/
 
+	config_load lora
+	config_get platform radio platform "packet_forwarder"
+	[ "$platform" != "basic_station" ] && {
+		logger "mode: $platform; basic_station exit !"
+		return
+	}
+
 	process_config
 
 	procd_open_instance
