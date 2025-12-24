@@ -1,14 +1,62 @@
 #!/bin/sh
-# USB WiFi Auto Configuration Monitor
-# Checks /media for USB drives with WLAN.txt every second
 
 MEDIA_DIR="/media"
 CONFIG_FILE="WLAN.txt"
 WIRELESS_CONFIG="/etc/config/wireless"
 LAST_CONFIG_MD5=""
+SN_FILE="/etc/deviceinfo/sn"
 
 log_message() {
-    logger -t usb-wifi "$1"
+    logger -t wifi-module "$1"
+}
+
+initialize_default_ap() {
+    log_message "Initializing default AP configuration"
+    
+    local sn=""
+    local ssid="R1225-0000"
+    
+    if [ ! -f "$SN_FILE" ]; then
+        log_message "SN file not found, waiting 5 seconds before creating default..."
+        sleep 5
+        
+        mkdir -p "$(dirname "$SN_FILE")"
+        
+        echo "seeed0000" > "$SN_FILE"
+        log_message "Created default SN file: $SN_FILE with content 'seeed0000'"
+    fi
+    
+    if [ -f "$SN_FILE" ]; then
+        sn=$(cat "$SN_FILE" | tr -d '[:space:]')
+        if [ ${#sn} -ge 4 ]; then
+            local last_four=${sn: -4}
+            ssid="R1225-${last_four}"
+        fi
+    fi
+    
+    log_message "Setting up AP with SSID: $ssid"
+    
+    uci set wireless.radio0.disabled='0'
+    uci set wireless.radio0.band='2g'
+    uci set wireless.radio0.channel='6'
+    uci -q delete wireless.radio0.htmode
+    
+    uci -q delete wireless.default_radio0
+    uci -q delete wireless.wifinet0
+    
+    uci set wireless.default_radio0='wifi-iface'
+    uci set wireless.default_radio0.device='radio0'
+    uci set wireless.default_radio0.network='wan'
+    uci set wireless.default_radio0.mode='ap'
+    uci set wireless.default_radio0.ifname='wlan0'
+    uci set wireless.default_radio0.ssid="$ssid"
+    uci set wireless.default_radio0.encryption='psk2'
+    uci set wireless.default_radio0.key='1234567890'
+    
+    uci commit wireless
+    wifi reload
+    
+    log_message "Default AP initialized: SSID=$ssid, Password=1234567890"
 }
 
 apply_wifi_config() {
@@ -16,7 +64,6 @@ apply_wifi_config() {
     
     log_message "Found WLAN.txt at: $config_path"
     
-    # Parse configuration file
     local mode=""
     local ap_ssid=""
     local ap_password=""
@@ -24,7 +71,6 @@ apply_wifi_config() {
     local sta_password=""
     
     while IFS='=' read -r key value; do
-        # Remove leading/trailing whitespace
         key=$(echo "$key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
         value=$(echo "$value" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
         
@@ -47,7 +93,6 @@ apply_wifi_config() {
         esac
     done < "$config_path"
     
-    # Validate configuration
     if [ -z "$mode" ]; then
         log_message "ERROR: MODE not specified in WLAN.txt"
         return 1
@@ -55,28 +100,23 @@ apply_wifi_config() {
     
     log_message "Applying WiFi configuration: MODE=$mode"
     
-    # Configure wireless based on mode
     if [ "$mode" = "ap" ] || [ "$mode" = "AP" ]; then
         if [ -z "$ap_ssid" ]; then
             log_message "ERROR: AP_SSID not specified for AP mode"
             return 1
         fi
         
-        # Configure as Access Point
         uci set wireless.radio0.disabled='0'
         uci set wireless.radio0.band='2g'
-        uci set wireless.radio0.htmode='HT20'
-        uci set wireless.radio0.channel='auto'
-        uci set wireless.radio0.country='CN'
+        uci set wireless.radio0.channel='6'
+        uci -q delete wireless.radio0.htmode
         
-        # Remove existing interfaces
         uci -q delete wireless.default_radio0
         uci -q delete wireless.wifinet0
         
-        # Add AP interface
         uci set wireless.default_radio0='wifi-iface'
         uci set wireless.default_radio0.device='radio0'
-        uci set wireless.default_radio0.network='wlan'
+        uci set wireless.default_radio0.network='wan'
         uci set wireless.default_radio0.mode='ap'
         uci set wireless.default_radio0.ifname='wlan0'
         uci set wireless.default_radio0.ssid="$ap_ssid"
@@ -97,18 +137,15 @@ apply_wifi_config() {
             return 1
         fi
         
-        # Configure as Station (Client)
         uci set wireless.radio0.disabled='0'
         uci set wireless.radio0.band='2g'
         uci set wireless.radio0.htmode='HT20'
         uci set wireless.radio0.channel='auto'
         uci set wireless.radio0.country='CN'
         
-        # Remove existing interfaces
         uci -q delete wireless.default_radio0
         uci -q delete wireless.wifinet0
         
-        # Add STA interface
         uci set wireless.default_radio0='wifi-iface'
         uci set wireless.default_radio0.device='radio0'
         uci set wireless.default_radio0.network='wlan'
@@ -131,7 +168,6 @@ apply_wifi_config() {
         return 1
     fi
     
-    # Reload WiFi
     wifi reload
     log_message "WiFi configuration applied and reloaded"
     
@@ -139,20 +175,15 @@ apply_wifi_config() {
 }
 
 check_usb_mounts() {
-    # Check if /media directory exists
     [ -d "$MEDIA_DIR" ] || return
     
-    # Scan all mounted directories in /media
     for mount_point in "$MEDIA_DIR"/*; do
         [ -d "$mount_point" ] || continue
         
-        # Look for WLAN.txt
         local config_file="$mount_point/$CONFIG_FILE"
         if [ -f "$config_file" ]; then
-            # Calculate MD5 to detect changes
             local current_md5=$(md5sum "$config_file" 2>/dev/null | awk '{print $1}')
             
-            # Only apply if config changed or first time
             if [ "$current_md5" != "$LAST_CONFIG_MD5" ]; then
                 apply_wifi_config "$config_file"
                 if [ $? -eq 0 ]; then
@@ -165,8 +196,9 @@ check_usb_mounts() {
     done
 }
 
-# Main loop
-log_message "USB WiFi Monitor started"
+log_message "WiFi Module Monitor started"
+
+initialize_default_ap
 
 while true; do
     check_usb_mounts
