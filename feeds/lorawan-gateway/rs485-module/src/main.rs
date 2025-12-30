@@ -11,12 +11,15 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::time::sleep;
 use tokio_serial::{DataBits, Parity, StopBits, SerialPortBuilderExt};
+use tokio_modbus::prelude::*;
+use std::path::Path;
 
 // Mqtt and Serial Configuration Structures
 #[derive(Debug, Clone, PartialEq)]
 struct Config {
     mqtt: MqttConfig,
     serial: SerialConfig,
+    protocol: ProtocolConfig,
 }
 
 // MQTT Configuration Structure
@@ -44,6 +47,7 @@ struct MqttConfig {
 // Serial Configuration Structure
 #[derive(Debug, Clone, PartialEq)]
 struct SerialConfig {
+    enabled: bool,
     device: String,
     baudrate: u32,
     databit: DataBits,
@@ -51,6 +55,17 @@ struct SerialConfig {
     checkbit: Parity,
     flowcontrol: tokio_serial::FlowControl,
     timeout: Duration,
+}
+
+// Protocol Configuration Structure
+#[derive(Debug, Clone, PartialEq)]
+struct ProtocolConfig {
+    enabled: bool,
+    protocol_type: String,
+    device_address: u8,
+    function_code: u8,
+    register_address: u16,
+    data_length: u16,
 }
 
 // RS485 -> MQTT Message Structure
@@ -128,7 +143,7 @@ fn load_config_from_uci() -> Result<Config, Box<dyn std::error::Error + Send + S
     };
 
     // MQTT config
-    let enabled = uci_get("rs485-module", "mqtt", "enabled")
+    let mqtt_enabled = uci_get("rs485-module", "mqtt", "enabled")
         .ok()
         .and_then(|s| s.parse::<u8>().ok())
         .unwrap_or(0)
@@ -164,7 +179,7 @@ fn load_config_from_uci() -> Result<Config, Box<dyn std::error::Error + Send + S
     let token = uci_get("rs485-module", "mqtt", "token").ok();
 
     let mqtt_config = MqttConfig {
-        enabled,
+        enabled: mqtt_enabled,
         transport,
         host,
         port,
@@ -188,6 +203,11 @@ fn load_config_from_uci() -> Result<Config, Box<dyn std::error::Error + Send + S
     };
 
     // Serial config
+    let serial_enabled = uci_get("rs485-module", "serial", "enabled")
+        .ok()
+        .and_then(|s| s.parse::<u8>().ok())
+        .unwrap_or(0)
+        == 1;
     let device = format!(
         "/dev/{}",
         uci_get("rs485-module", "serial", "device").unwrap_or_else(|_| "ttyAMA2".to_string())
@@ -209,6 +229,7 @@ fn load_config_from_uci() -> Result<Config, Box<dyn std::error::Error + Send + S
         .unwrap_or(1000);
 
     let serial_config = SerialConfig {
+        enabled: serial_enabled,
         device,
         baudrate,
         databit: match databit {
@@ -234,9 +255,44 @@ fn load_config_from_uci() -> Result<Config, Box<dyn std::error::Error + Send + S
         timeout: Duration::from_millis(timeout),
     };
 
+
+    // Protocol config
+    let protocol_enabled = uci_get("rs485-module", "protocol", "enabled")
+        .ok()
+        .and_then(|s| s.parse::<u8>().ok())
+        .unwrap_or(0)
+        == 1;
+    let protocol_type = uci_get("rs485-module", "protocol", "type").unwrap_or_else(|_| "modbus-rtu".to_string());
+    let device_address = uci_get("rs485-module", "protocol", "device_address")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+    let function_code = uci_get("rs485-module", "protocol", "function_code")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(3);
+    let register_address = uci_get("rs485-module", "protocol", "register_address")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(40001);
+    let data_length = uci_get("rs485-module", "protocol", "data_length")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(10);
+
+    let protocol_config = ProtocolConfig {
+        enabled: protocol_enabled,
+        protocol_type,
+        device_address,
+        function_code,
+        register_address,
+        data_length,
+    };
+
     Ok(Config {
         mqtt: mqtt_config,
         serial: serial_config,
+        protocol: protocol_config,
     })
 }
 
@@ -440,7 +496,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Initialize logger
     let logger = Arc::new(Logger::new());
     logger.init()?;
-    logger.log("RS485-MQTT Bridge starting...");
 
     // Load initial configuration from UCI
     let mut config = match load_config_from_uci() {
@@ -451,21 +506,48 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
     };
 
-    // Initialize serial port
-    let mut serial_port = match setup_serial(&config.serial).await {
-        Ok(port) => {
-            logger.log(&format!(
-                "Opening serial port: {} @ {} baud, {:?} data bits, {:?} stop bits, {:?} parity, {:?} flow control, {:?} timeout",
-                config.serial.device, config.serial.baudrate, config.serial.databit, config.serial.stopbit, config.serial.checkbit, config.serial.flowcontrol, config.serial.timeout
-            ));
-            logger.log("Success opening serial port");
-            port
+    // Initialize serial port based on mode (Protocol and MQTT are mutually exclusive)
+    let mut serial_port: Option<tokio_serial::SerialStream> = None;
+    let mut modbus_ctx: Option<client::Context> = None;
+
+    if config.serial.enabled{
+        if config.mqtt.enabled {
+            logger.log("RS485-MQTT Bridge starting...");
         }
-        Err(e) => {
-            logger.log(&format!("Failed opening serial port: {}", e));
-            return Err(e);
+
+        if !config.protocol.enabled {
+            // MQTT mode: initialize serial port normally
+            serial_port = match setup_serial(&config.serial).await {
+                Ok(port) => {
+                    logger.log(&format!(
+                        "Opening serial port: {} @ {} baud",
+                        config.serial.device, config.serial.baudrate
+                    ));
+                    Some(port)
+                }
+                Err(e) => {
+                    logger.log(&format!("Failed opening serial port: {}", e));
+                    return Err(e);
+                }
+            };
+        } else {
+            // Protocol mode: initialize Modbus context
+            match setup_serial(&config.serial).await {
+                Ok(port) => {
+                    logger.log(&format!(
+                        "Opening serial port: {} @ {} baud",
+                        config.serial.device, config.serial.baudrate
+                    ));
+                    // let ctx = rtu::attach(port);
+                    modbus_ctx = Some(rtu::attach(port));
+                }
+                Err(e) => {
+                    logger.log(&format!("Failed opening serial port: {}", e));
+                    return Err(e);
+                }
+            }
         }
-    };
+    }
 
     let mut mqtt_client: Option<AsyncClient> = None;                // MQTT client
     let mut mqtt_eventloop: Option<rumqttc::EventLoop> = None;      // MQTT event loop
@@ -533,7 +615,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                             
                                             if let Ok(msg) = serde_json::from_str::<DownlinkMessage>(&payload) {
                                                 let data = msg.data.as_bytes();
-                                                match AsyncWriteExt::write_all(&mut serial_port, data).await {
+                                                let write_result = if let Some(ref mut port) = serial_port {
+                                                    AsyncWriteExt::write_all(port, data).await
+                                                } else {
+                                                    Err(std::io::Error::new(std::io::ErrorKind::NotConnected, "Serial port not initialized"))
+                                                };
+                                                match write_result {
                                                     Ok(_) => {
                                                         logger.log(&format!("Forwarded to RS485: {}", msg.data));
                                                     }
@@ -572,7 +659,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
                         serial_result = async { 
                             let mut serial_buffer = vec![0u8; 1024];
-                            serial_port.read(&mut serial_buffer).await.map(|n| (n, serial_buffer))
+                            if let Some(ref mut port) = serial_port {
+                                port.read(&mut serial_buffer).await.map(|n| (n, serial_buffer))
+                            } else {
+                                std::future::pending().await
+                            }
                         } => {
                             match serial_result {
                                 Ok((n, buffer)) if n > 0 => {
@@ -631,13 +722,80 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     }
                 }
             }
-            else {
-                if mqtt_state != "not_connect" {
-                    mqtt_client = None;
-                    mqtt_eventloop = None;
 
-                    logger.log("MQTT disabled");
-                    mqtt_state = "not_connect";
+            // Check for trigger file (for on-demand Modbus reads)
+            if config.protocol.enabled {
+                let trigger_path = "/tmp/rs485_trigger";
+                let result_path = "/tmp/rs485_result";
+                
+                if Path::new(trigger_path).exists() {
+                    logger.log("Trigger file detected, reading Modbus data...");
+                    
+                    // Read Modbus data using shared Modbus context
+                    let result: Result<String, Box<dyn std::error::Error + Send + Sync>> = if let Some(ref mut ctx) = modbus_ctx {
+                        // Set slave address
+                        ctx.set_slave(Slave(config.protocol.device_address));
+                        
+                        // Read data based on function code
+                        match config.protocol.function_code {
+                            3 => {
+                                // Read holding registers
+                                let addr = if config.protocol.register_address > 0 {
+                                    (config.protocol.register_address - 1) as u16
+                                } else { 0 };
+                                let data = ctx.read_holding_registers(addr, config.protocol.data_length as u16).await??;
+                                Ok::<String, Box<dyn std::error::Error + Send + Sync>>(format!("Registers: [{}]", 
+                                    data.iter().map(|v| format!("0x{:04X}", *v)).collect::<Vec<_>>().join(", ")))
+                            }
+                            4 => {
+                                // Read input registers
+                                let addr = if config.protocol.register_address > 0 {
+                                    (config.protocol.register_address - 1) as u16
+                                } else { 0 };
+                                let data = ctx.read_input_registers(addr, config.protocol.data_length as u16).await??;
+                                Ok::<String, Box<dyn std::error::Error + Send + Sync>>(format!("Registers: [{}]", 
+                                    data.iter().map(|v| format!("0x{:04X}", *v)).collect::<Vec<_>>().join(", ")))
+                            }
+                            1 => {
+                                // Read coils
+                                let addr = if config.protocol.register_address > 0 {
+                                    (config.protocol.register_address - 1) as u16
+                                } else { 0 };
+                                let data = ctx.read_coils(addr, config.protocol.data_length as u16).await??;
+                                Ok::<String, Box<dyn std::error::Error + Send + Sync>>(format!("Coils: [{}]", 
+                                    data.iter().map(|v| if *v { "1" } else { "0" }).collect::<Vec<_>>().join(", ")))
+                            }
+                            2 => {
+                                // Read discrete inputs
+                                let addr = if config.protocol.register_address > 0 {
+                                    (config.protocol.register_address - 1) as u16
+                                } else { 0 };
+                                let data = ctx.read_discrete_inputs(addr, config.protocol.data_length as u16).await??;
+                                Ok::<String, Box<dyn std::error::Error + Send + Sync>>(format!("Coils: [{}]", 
+                                    data.iter().map(|v| if *v { "1" } else { "0" }).collect::<Vec<_>>().join(", ")))
+                            }
+                            _ => {
+                                Err::<String, Box<dyn std::error::Error + Send + Sync>>(format!("Unsupported function code: {}", config.protocol.function_code).into())
+                            }
+                        }
+                    } else {
+                        Err("Modbus context not initialized".into())
+                    };
+                    
+                    match result {
+                        Ok(data) => {
+                            logger.log(&format!("Modbus data read: {}", data));
+                            let _ = std::fs::write(result_path, &data);
+                        }
+                        Err(e) => {
+                            logger.log(&format!("Modbus read failed: {}", e));
+                            let error_msg = format!("Error: {}", e);
+                            let _ = std::fs::write(result_path, error_msg);
+                        }
+                    }
+                    
+                    // Remove trigger file
+                    let _ = std::fs::remove_file(trigger_path);
                 }
             }
 
