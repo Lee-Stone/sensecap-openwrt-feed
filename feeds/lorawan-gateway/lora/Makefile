@@ -16,7 +16,7 @@ define Package/lora
 	SECTION:=gateway
 	CATEGORY:=Gateway
 	TITLE:=LoRa Configuration
-	DEPENDS:= +basicstation_ubus +lora_pkt_fwd +libc +libstdcpp
+	DEPENDS:=+packetforwarder +basicstation_ubus +libc +libstdcpp
 endef
 
 define Package/lora/description

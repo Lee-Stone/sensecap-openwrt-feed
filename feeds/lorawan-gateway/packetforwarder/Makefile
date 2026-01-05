@@ -25,23 +25,23 @@ define Package/packetforwarder/Default
   TITLE:=SX1302/SX1303 packet forwarder(add ubus message support)
 endef
 
-define Package/lora_pkt_fwd
+define Package/packetforwarder
   $(call Package/packetforwarder/Default)
   TITLE+=(Packet Forwarder)
   DEPENDS:=+kmod-usb-acm +kmod-spi-dev +librt +libpthread
 endef
 
-define Package/lora_pkt_fwd/description
+define Package/packetforwarder/description
   Packet Forwarders for SX1302/SX1303 Hardware Abstraction Layer
 endef
 
-define Package/lora_pkt_fwd/config
+define Package/packetforwarder/config
 	select BUSYBOX_DEFAULT_USLEEP
 endef
 
 TARGET_CFLAGS = -O2 -Wall -Wextra -std=c99 -Iinc -I. -lm  -I../libtools/inc
 
-define Package/lora_pkt_fwd/conffiles
+define Package/packetforwarder/conffiles
 /etc/config/packetforwarder
 endef
 
@@ -61,7 +61,7 @@ define Build/InstallDev
 	$(CP) $(PKG_BUILD_DIR)/libloragw/*.a $(1)/usr/lib
 endef
 
-define Package/lora_pkt_fwd/install
+define Package/packetforwarder/install
 	$(INSTALL_DIR) $(1)/usr/bin/packetforwarder
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/packet_forwarder/lora_pkt_fwd $(1)/usr/bin/packetforwarder/
 
@@ -75,4 +75,4 @@ define Package/lora_pkt_fwd/install
 	$(INSTALL_DATA) ./files/etc/packetforwarder/*.* $(1)/etc/packetforwarder/
 endef
 
-$(eval $(call BuildPackage,lora_pkt_fwd))
+$(eval $(call BuildPackage,packetforwarder))
