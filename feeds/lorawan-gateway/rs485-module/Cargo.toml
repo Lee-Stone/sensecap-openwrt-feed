@@ -14,4 +14,3 @@ webpki-roots = "0.26"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 chrono = "0.4"
-tokio-modbus = { version = "0.14", features = ["rtu"] }
