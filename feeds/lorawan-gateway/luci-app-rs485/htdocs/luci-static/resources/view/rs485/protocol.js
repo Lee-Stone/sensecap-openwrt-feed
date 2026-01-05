@@ -60,6 +60,10 @@ return view.extend({
         o.placeholder = '10';
         o.default = '10';
 
+        o = s.option(form.Flag, 'enable_crc', _('Enable CRC Check'));
+        o.default = '1';
+        o.rmempty = false;
+
         o = s.option(form.Button, '_show_frame_btn', _('Read Data'));
         o.inputtitle = _('Read Data');
         o.inputstyle = 'apply';

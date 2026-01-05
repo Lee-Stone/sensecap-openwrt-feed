@@ -90,7 +90,7 @@ impl Logger {
         let file = OpenOptions::new()
             .create(true)
             .append(true)
-            .open("/tmp/rs485/modbus_log")?;
+            .open("/tmp/rs485/log")?;
         let mut file_guard = self.file.lock().unwrap();
         *file_guard = Some(file);
         Ok(())
@@ -439,10 +439,22 @@ async fn read_modbus_data(
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     ctx.set_slave(Slave(config.device_address));
     
-    let addr = if config.register_address > 0 {
-        (config.register_address - 1) as u16
-    } else {
-        0
+    let addr = match config.function_code {
+        3 | 4 => {
+            if config.register_address >= 40001 {
+                (config.register_address - 40001) as u16
+            } else {
+                config.register_address as u16
+            }
+        }
+        1 | 2 => {
+            if config.register_address > 0 {
+                (config.register_address - 1) as u16
+            } else {
+                0
+            }
+        }
+        _ => config.register_address as u16,
     };
 
     match config.function_code {

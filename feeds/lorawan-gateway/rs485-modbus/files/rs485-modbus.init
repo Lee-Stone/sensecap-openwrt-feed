@@ -7,7 +7,8 @@ USE_PROCD=1
 PROG=/usr/bin/rs485-modbus
 
 start_service() {
-    local protocol_enabled
+    local serial_enabled protocol_enabled
+    serial_enabled=$(uci -q get rs485-module.serial.enabled)
     protocol_enabled=$(uci -q get rs485-module.protocol.enabled)
 
     # Only start if serial enabled and protocol enabled
