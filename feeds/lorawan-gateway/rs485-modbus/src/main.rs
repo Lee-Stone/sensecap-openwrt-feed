@@ -439,23 +439,7 @@ async fn read_modbus_data(
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     ctx.set_slave(Slave(config.device_address));
     
-    let addr = match config.function_code {
-        3 | 4 => {
-            if config.register_address >= 40001 {
-                (config.register_address - 40001) as u16
-            } else {
-                config.register_address as u16
-            }
-        }
-        1 | 2 => {
-            if config.register_address > 0 {
-                (config.register_address - 1) as u16
-            } else {
-                0
-            }
-        }
-        _ => config.register_address as u16,
-    };
+    let addr = config.register_address as u16;
 
     match config.function_code {
         3 => {
@@ -488,86 +472,39 @@ async fn read_modbus_data(
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let logger = Arc::new(Logger::new());
     logger.init()?;
-    logger.log("RS485-Modbus starting...");
+    logger.log("RS485-Modbus Bridge starting...");
 
-    let mut config = load_config_from_uci()?;
+    // Load initial configuration from UCI
+    let mut config = match load_config_from_uci() {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            logger.log(&format!("Failed to setup config: {}", e));
+            return Err(e);
+        }
+    };
 
     // Initialize Modbus context
     let port = setup_serial(&config.serial).await?;
     logger.log(&format!(
-        "Opening serial port: {} @ {} baud",
-        config.serial.device, config.serial.baudrate
+        "Opening serial port: {} @ {} baud, {:?} data bits, {:?} stop bits, {:?} parity, {:?} flow control, {:?} timeout",
+        config.serial.device, config.serial.baudrate, config.serial.databit, config.serial.stopbit, config.serial.checkbit, config.serial.flowcontrol, config.serial.timeout
     ));
     let mut modbus_ctx = rtu::attach(port);
-    logger.log("Modbus RTU context initialized");
-
-    let mut mqtt_client: Option<AsyncClient> = None;
-    let mut mqtt_eventloop: Option<rumqttc::EventLoop> = None;
-    let mut mqtt_state = "not_connect";
+    logger.log("Success opening serial port");
+    
+    let mut mqtt_client: Option<AsyncClient> = None;                // MQTT client
+    let mut mqtt_eventloop: Option<rumqttc::EventLoop> = None;      // MQTT event loop
+    let mut mqtt_state = "not_connect";                             // MQTT connection state   
 
     loop {
-        config = load_config_from_uci()?;
-
-        // Check for modbus_read trigger file FIRST (independent of MQTT state)
-        let trigger_path = "/tmp/rs485/modbus_read";
-        let result_path = "/tmp/rs485/modbus_result";
-        
-        if Path::new(trigger_path).exists() {
-            logger.log("Modbus read trigger detected");
-            
-            // Add 3 second timeout for Modbus read
-            let read_future = read_modbus_data(&mut modbus_ctx, &config.protocol, &logger);
-            let timeout_future = tokio::time::sleep(Duration::from_secs(3));
-            
-            let modbus_result = tokio::select! {
-                result = read_future => Some(result),
-                _ = timeout_future => {
-                    logger.log("Modbus read timeout after 3 seconds");
-                    None
-                }
-            };
-            
-            match modbus_result {
-                Some(Ok(data)) => {
-                    logger.log(&format!("Modbus data: {}", data));
-                    match std::fs::write(result_path, &data) {
-                        Ok(_) => logger.log("Result file written successfully"),
-                        Err(e) => logger.log(&format!("Failed to write result file: {}", e)),
-                    }
-                    
-                    // Publish to MQTT if enabled and connected
-                    if config.mqtt.enabled && mqtt_state == "success_connect" {
-                        if let Some(ref client) = mqtt_client {
-                            let uplink_msg = UplinkMessage { data: data.clone() };
-                            if let Ok(json) = serde_json::to_string(&uplink_msg) {
-                                match client.publish(&config.mqtt.uplink_topic, config.mqtt.qos_level, false, json.as_bytes()).await {
-                                    Ok(_) => logger.log(&format!("Published to MQTT: {}", json)),
-                                    Err(e) => logger.log(&format!("MQTT publish failed: {}", e)),
-                                }
-                            }
-                        }
-                    }
-                }
-                Some(Err(e)) => {
-                    logger.log(&format!("Modbus read failed: {}", e));
-                    let error_msg = format!("Error: {}", e);
-                    match std::fs::write(result_path, &error_msg) {
-                        Ok(_) => logger.log("Error result written"),
-                        Err(e) => logger.log(&format!("Failed to write error: {}", e)),
-                    }
-                }
-                None => {
-                    // Timeout occurred
-                    let error_msg = "Error: Modbus read timeout (no device connected?)";
-                    match std::fs::write(result_path, error_msg) {
-                        Ok(_) => logger.log("Timeout error written"),
-                        Err(e) => logger.log(&format!("Failed to write timeout error: {}", e)),
-                    }
-                }
+        // Load configuration
+        config = match load_config_from_uci() {
+            Ok(cfg) => cfg,
+            Err(e) => {
+                logger.log(&format!("Failed to load config: {}", e));
+                return Err(e);
             }
-            
-            let _ = std::fs::remove_file(trigger_path);
-        }
+        };
 
         if config.mqtt.enabled {
             if mqtt_state == "not_connect" {
@@ -584,13 +521,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                         mqtt_state = "failed_connect";
                     }
                 }
-            } else if mqtt_state == "success_connect" {
+            } 
+            else if mqtt_state == "success_connect" {
                 // Check for modbus_read trigger file first (higher priority)
                 let trigger_path = "/tmp/rs485/modbus_read";
                 let result_path = "/tmp/rs485/modbus_result";
                 
                 if Path::new(trigger_path).exists() {
-                    logger.log("Modbus read trigger detected");
+                    // logger.log("Modbus read trigger detected");
                     
                     // Add 3 second timeout for Modbus read
                     let read_future = read_modbus_data(&mut modbus_ctx, &config.protocol, &logger);
@@ -606,9 +544,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     
                     match modbus_result {
                         Some(Ok(data)) => {
-                            logger.log(&format!("Modbus data: {}", data));
+                            // logger.log(&format!("Modbus data: {}", data));
                             match std::fs::write(result_path, &data) {
-                                Ok(_) => logger.log("Result file written successfully"),
+                                Ok(_) => logger.log(&format!("Modbus data received: {}", data)),
                                 Err(e) => logger.log(&format!("Failed to write result file: {}", e)),
                             }
                             
@@ -635,7 +573,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                         }
                         None => {
                             // Timeout occurred
-                            let error_msg = "Error: Modbus read timeout (no device connected?)";
+                            let error_msg = "Error: Modbus read timeout";
                             match std::fs::write(result_path, &error_msg) {
                                 Ok(_) => logger.log("Error result written"),
                                 Err(e) => logger.log(&format!("Failed to write error: {}", e)),
@@ -658,50 +596,93 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                         match mqtt_result {
                             Ok(Event::Incoming(incoming)) => {
                                 match incoming {
+                                    // Handle connection acknowledgment
                                     Incoming::ConnAck(_) => {
+                                        // Subscribe to downlink topic
                                         if let Some(ref client) = mqtt_client {
                                             match client.subscribe(&config.mqtt.downlink_topic, config.mqtt.qos_level).await {
-                                                Ok(_) => logger.log(&format!("Subscribed to: {}", config.mqtt.downlink_topic)),
-                                                Err(e) => logger.log(&format!("Subscribe failed: {}", e)),
+                                                Ok(_) => {
+                                                    logger.log(&format!("Subscribed [MQTT->RS485] to topic: {}", config.mqtt.downlink_topic));
+                                                }
+                                                Err(e) => {
+                                                    logger.log(&format!("Failed to topic: {}", e));
+                                                }
                                             }
                                         }
+                                        logger.log(&format!("Published [RS485->MQTT] to topic: {}", config.mqtt.uplink_topic));
                                     }
+                                    // Handle incoming publish messages
                                     Incoming::Publish(p) => {
                                         let payload = String::from_utf8_lossy(&p.payload);
                                         logger.log(&format!("MQTT received: {}", payload));
                                         
                                         if let Ok(msg) = serde_json::from_str::<DownlinkMessage>(&payload) {
-                                            // Transparent forward to RS485 (not implemented in modbus mode)
-                                            logger.log(&format!("Downlink data: {}", msg.data));
+                                            let data = msg.data.as_bytes();
+                                                
+                                            match tokio_serial::new(&config.serial.device, config.serial.baudrate)
+                                                .data_bits(config.serial.databit)
+                                                .stop_bits(config.serial.stopbit)
+                                                .parity(config.serial.checkbit)
+                                                .flow_control(config.serial.flowcontrol)
+                                                .timeout(config.serial.timeout)
+                                                .open_native_async()
+                                            {
+                                                Ok(mut port) => {
+                                                    match AsyncWriteExt::write_all(&mut port, &data).await {
+                                                        Ok(_) => logger.log(&format!("Forwarded to RS485: {}", msg.data)),
+                                                        Err(e) => logger.log(&format!("RS485 write failed: {}", e)),
+                                                    }
+                                                }
+                                                Err(e) => logger.log(&format!("Failed to open serial port: {}", e)),
+                                            }
                                         }
                                     }
+                                    // Handle subscription acknowledgment
+                                    Incoming::SubAck(_) => {
+                                        // logger.log("Subscription acknowledged");
+                                    }
+                                    // Handle disconnection
                                     Incoming::Disconnect => {
                                         logger.log("MQTT disconnected");
                                         mqtt_state = "failed_connect";
                                     }
-                                    _ => {}
+                                    // Handle other incoming events
+                                    _ => {
+                                        // logger.log(&format!("MQTT event: {:?}", other));
+                                    }
                                 }
+                            }
+                            Ok(Event::Outgoing(_)) => {
+                                // Outgoing events are normal
                             }
                             Err(e) => {
                                 logger.log(&format!("MQTT error: {}", e));
                                 mqtt_state = "failed_connect";
                             }
-                            _ => {}
                         }
                     }
+                    _ = tokio::time::sleep(Duration::from_millis(1000)) => {
+                        // Timeout to ensure trigger file checked regularly
+                    }
                 }
-            } else if mqtt_state == "failed_connect" {
+            } 
+            else if mqtt_state == "failed_connect" {
                 tokio::select! {
+                    // Reconnect timer
                     _ = tokio::time::sleep(Duration::from_secs(config.mqtt.reconnect_delay)) => {
                         logger.log("Retrying connection...");
                         match setup_mqtt_client(&config.mqtt) {
                             Ok((client, el)) => {
                                 mqtt_client = Some(client);
                                 mqtt_eventloop = Some(el);
-                                logger.log(&format!("Connected to {}:{}", config.mqtt.host, config.mqtt.port));
+
+                                logger.log(&format!("Success connecting to {}:{}", config.mqtt.host, config.mqtt.port));
                                 mqtt_state = "success_connect";
                             }
                             Err(e) => {
+                                mqtt_client = None;
+                                mqtt_eventloop = None;
+
                                 logger.log(&format!("Reconnect failed: {}", e));
                                 mqtt_state = "failed_connect";
                             }
@@ -709,26 +690,53 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     }
                 }
             }
-        } else {
+        } 
+        else {
             // MQTT disabled, only check trigger file
             let trigger_path = "/tmp/rs485/modbus_read";
             let result_path = "/tmp/rs485/modbus_result";
             
             if Path::new(trigger_path).exists() {
-                logger.log("Modbus read trigger detected");
+                // logger.log("Modbus read trigger detected");
                 
-                match read_modbus_data(&mut modbus_ctx, &config.protocol, &logger).await {
-                    Ok(data) => {
-                        logger.log(&format!("Modbus data: {}", data));
-                        let _ = std::fs::write(result_path, &data);
+                // Add 3 second timeout for Modbus read
+                let read_future = read_modbus_data(&mut modbus_ctx, &config.protocol, &logger);
+                let timeout_future = tokio::time::sleep(Duration::from_secs(3));
+                
+                let modbus_result = tokio::select! {
+                    result = read_future => Some(result),
+                    _ = timeout_future => {
+                        logger.log("Modbus read timeout after 3 seconds");
+                        None
                     }
-                    Err(e) => {
+                };
+
+                match modbus_result {
+                    Some(Ok(data)) => {
+                        // logger.log(&format!("Modbus data: {}", data));
+                        match std::fs::write(result_path, &data) {
+                            Ok(_) => logger.log(&format!("Modbus data received: {}", data)),
+                            Err(e) => logger.log(&format!("Failed to write result file: {}", e)),
+                        }
+                    }
+                    Some(Err(e)) => {
                         logger.log(&format!("Modbus read failed: {}", e));
                         let error_msg = format!("Error: {}", e);
-                        let _ = std::fs::write(result_path, error_msg);
+                        match std::fs::write(result_path, &error_msg) {
+                            Ok(_) => logger.log("Error result written"),
+                            Err(e) => logger.log(&format!("Failed to write error: {}", e)),
+                        }
+                    }
+                    None => {
+                        // Timeout occurred
+                        let error_msg = "Error: Modbus read timeout";
+                        match std::fs::write(result_path, &error_msg) {
+                            Ok(_) => logger.log("Error result written"),
+                            Err(e) => logger.log(&format!("Failed to write error: {}", e)),
+                        }
                     }
                 }
-                
+                    
                 let _ = std::fs::remove_file(trigger_path);
             }
             

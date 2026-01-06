@@ -44,10 +44,10 @@ return view.extend({
         o.default = '1';
 
         o = s.option(form.ListValue, 'function_code', _('Function Code'));
-        o.value('03', '03 - Read Holding Registers');
-        o.value('04', '04 - Read Input Registers');
         o.value('01', '01 - Read Coils');
         o.value('02', '02 - Read Discrete Inputs');
+        o.value('03', '03 - Read Holding Registers');
+        o.value('04', '04 - Read Input Registers');
         o.default = '03';
 
         o = s.option(form.Value, 'register_address', _('Register Address'));
