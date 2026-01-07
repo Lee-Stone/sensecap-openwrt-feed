@@ -14,6 +14,11 @@ use tokio_serial::{DataBits, Parity, StopBits, SerialPortBuilderExt};
 use tokio_modbus::prelude::*;
 use std::path::Path;
 
+// Global constants for file paths
+const trigger_read_path: &str = "/tmp/rs485/modbus_read";
+const trigger_write_path: &str = "/tmp/rs485/modbus_write";
+const result_path: &str = "/tmp/rs485/modbus_result";
+
 // Configuration Structures
 #[derive(Debug, Clone, PartialEq)]
 struct Config {
@@ -61,6 +66,7 @@ struct ProtocolConfig {
     register_address: u16,
     data_length: u16,
     write_value: String,
+    standard_mode: bool,
 }
 
 // MQTT Message Structures
@@ -247,12 +253,21 @@ fn load_config_from_uci() -> Result<Config, Box<dyn std::error::Error + Send + S
         .and_then(|s| s.parse().ok())
         .unwrap_or(10);
 
+    let write_value = uci_get("rs485-module", "protocol", "write_value")
+        .unwrap_or_else(|_| "0".to_string());
+    
+    let standard_mode = uci_get("rs485-module", "protocol", "standard_mode")
+        .ok()
+        .and_then(|s| s.parse::<u8>().ok())
+        .unwrap_or(1) == 1;
+
     let protocol_config = ProtocolConfig {
         device_address,
         function_code,
         register_address,
         data_length,
-        write_value: uci_get("rs485-module", "protocol", "write_value").unwrap_or_else(|_| "0".to_string()),
+        write_value,
+        standard_mode,
     };
 
     Ok(Config {
@@ -433,16 +448,166 @@ async fn setup_serial(
     Ok(port)
 }
 
+// CRC-16 Modbus calculation
+fn crc16_modbus(data: &[u8]) -> u16 {
+    let mut crc: u16 = 0xFFFF;
+    for &byte in data {
+        crc ^= byte as u16;
+        for _ in 0..8 {
+            if crc & 0x0001 != 0 {
+                crc = (crc >> 1) ^ 0xA001;
+            } else {
+                crc >>= 1;
+            }
+        }
+    }
+    crc
+}
+
 // Read Modbus data
 async fn read_modbus_data(
     ctx: &mut client::Context,
     config: &ProtocolConfig,
+    serial_config: &SerialConfig,
     logger: &Arc<Logger>,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     ctx.set_slave(Slave(config.device_address));
-    
     let addr = config.register_address as u16;
+    
+    // For write operations (FC05/06/15/16), check if non-standard mode is enabled
+    if matches!(config.function_code, 5 | 6 | 15 | 16) && !config.standard_mode {
+        // Non-standard mode: parse space-separated hex data (e.g., "00 5A")
+        let write_val_str = config.write_value.trim();
+        let parts: Vec<&str> = write_val_str.split_whitespace().collect();
+        let mut data_bytes = Vec::new();
+        
+        for part in &parts {
+            match u8::from_str_radix(part, 16) {
+                Ok(byte) => data_bytes.push(byte),
+                Err(_) => return Err(format!("Invalid hex value: {}", part).into()),
+            }
+        }
+        
+        if data_bytes.is_empty() {
+            return Err("No data bytes provided in non-standard mode".into());
+        }
+        
+        // Build frame based on function code
+        let mut frame = vec![config.device_address, config.function_code];
+        
+        match config.function_code {
+            5 => {
+                // FC05: Write Single Coil
+                frame.push((addr >> 8) as u8);
+                frame.push((addr & 0xFF) as u8);
+                frame.extend_from_slice(&data_bytes);
+            }
+            6 => {
+                // FC06: Write Single Register
+                frame.push((addr >> 8) as u8);
+                frame.push((addr & 0xFF) as u8);
+                frame.extend_from_slice(&data_bytes);
+            }
+            15 => {
+                // FC15: Write Multiple Coils
+                let quantity = config.data_length as u16;
+                let byte_count = data_bytes.len() as u8;
+                frame.push((addr >> 8) as u8);
+                frame.push((addr & 0xFF) as u8);
+                frame.push((quantity >> 8) as u8);
+                frame.push((quantity & 0xFF) as u8);
+                frame.push(byte_count);
+                frame.extend_from_slice(&data_bytes);
+            }
+            16 => {
+                // FC16: Write Multiple Registers
+                let quantity = (data_bytes.len() / 2) as u16;
+                let byte_count = data_bytes.len() as u8;
+                frame.push((addr >> 8) as u8);
+                frame.push((addr & 0xFF) as u8);
+                frame.push((quantity >> 8) as u8);
+                frame.push((quantity & 0xFF) as u8);
+                frame.push(byte_count);
+                frame.extend_from_slice(&data_bytes);
+            }
+            _ => {
+                return Err(format!("Hex data mode not supported for FC{:02}", config.function_code).into());
+            }
+        }
+        
+        // Calculate and append CRC
+        let crc = crc16_modbus(&frame);
+        frame.push((crc & 0xFF) as u8);
+        frame.push((crc >> 8) as u8);
+        
+        let mut port = tokio_serial::new(&serial_config.device, serial_config.baudrate)
+            .data_bits(serial_config.databit)
+            .stop_bits(serial_config.stopbit)
+            .parity(serial_config.checkbit)
+            .flow_control(serial_config.flowcontrol)
+            .timeout(serial_config.timeout)
+            .open_native_async()
+            .map_err(|e| format!("Failed to open port: {}", e))?;
+        
+        AsyncWriteExt::write_all(&mut port, &frame).await?;
+        
+        // Read response
+        let mut response_buf = vec![0u8; 256];
+        match AsyncReadExt::read(&mut port, &mut response_buf).await {
+            Ok(n) if n > 0 => {
+                let response = &response_buf[..n];
+                // logger.log(&format!("Response received: {:02X?}", response));
+                drop(port);
+                
+                // Parse response according to function code (same format as standard frames)
+                match config.function_code {
+                    5 => {
+                        // FC05: Write Single Coil response
+                        if n >= 6 {
+                            let value = ((response[4] as u16) << 8) | (response[5] as u16);
+                            return Ok(format!("Coils: [0x{:04X}]", value));
+                        }
+                    }
+                    6 => {
+                        // FC06: Write Single Register response
+                        if n >= 6 {
+                            let value = ((response[4] as u16) << 8) | (response[5] as u16);
+                            return Ok(format!("Registers: [0x{:04X}]", value));
+                        }
+                    }
+                    15 => {
+                        // FC15: Write Multiple Coils response
+                        if n >= 6 {
+                            let count = ((response[4] as u16) << 8) | (response[5] as u16);
+                            return Ok(format!("Coils: [count={}]", count));
+                        }
+                    }
+                    16 => {
+                        // FC16: Write Multiple Registers response
+                        if n >= 6 {
+                            let count = ((response[4] as u16) << 8) | (response[5] as u16);
+                            return Ok(format!("Registers: [count={}]", count));
+                        }
+                    }
+                    _ => {
+                        return Ok(format!("Response: {:02X?}", response));
+                    }
+                }
+            }
+            Ok(_) => {
+                logger.log("No response data received");
+                drop(port);
+                return Err("No response data received".into());
+            }
+            Err(e) => {
+                logger.log(&format!("Response read error: {}", e));
+                drop(port);
+                return Err(format!("Response read error: {}", e).into());
+            }
+        }
+    }
 
+    // Standard Modbus operations (for read operations or standard mode write operations)
     match config.function_code {
         3 => {
             let data = ctx.read_holding_registers(addr, config.data_length as u16).await??;
@@ -468,7 +633,7 @@ async fn read_modbus_data(
             // Write Single Coil
             let value = config.write_value.trim().parse::<u16>().unwrap_or(0) != 0;
             ctx.write_single_coil(addr, value).await??;
-            Ok(format!("Write Single Coil: address={}, value={}", addr, if value { "ON" } else { "OFF" }))
+            Ok(format!("Coils: [{}]", value))
         }
         6 => {
             // Write Single Register
@@ -478,7 +643,7 @@ async fn read_modbus_data(
                 config.write_value.trim().parse::<u16>().unwrap_or(0)
             };
             ctx.write_single_register(addr, value).await??;
-            Ok(format!("Write Single Register: address={}, value=0x{:04X}", addr, value))
+            Ok(format!("Registers: [0x{:04X}]", value))
         }
         15 => {
             let values: Vec<bool> = config.write_value.trim().split(',')
@@ -489,7 +654,8 @@ async fn read_modbus_data(
                 return Err("No valid values provided for Write Multiple Coils".into());
             }
             ctx.write_multiple_coils(addr, &values).await??;
-            Ok(format!("Write Multiple Coils: address={}, count={}", addr, values.len()))
+            Ok(format!("Coils: [{}]", 
+                values.iter().map(|v| if *v { "1" } else { "0" }).collect::<Vec<_>>().join(", ")))
         }
         16 => {
             // Write Multiple Registers
@@ -507,7 +673,8 @@ async fn read_modbus_data(
                 return Err("No valid values provided for Write Multiple Registers".into());
             }
             ctx.write_multiple_registers(addr, &values).await??;
-            Ok(format!("Write Multiple Registers: address={}, count={}", addr, values.len()))
+            Ok(format!("Registers: [{}]", 
+                values.iter().map(|v| format!("0x{:04X}", *v)).collect::<Vec<_>>().join(", ")))
         }
         _ => {
             Err(format!("Unsupported function code: {}", config.function_code).into())
@@ -571,14 +738,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             } 
             else if mqtt_state == "success_connect" {
                 // Check for modbus_read trigger file first (higher priority)
-                let trigger_path = "/tmp/rs485/modbus_read";
-                let result_path = "/tmp/rs485/modbus_result";
-                
-                if Path::new(trigger_path).exists() {
+                if Path::new(trigger_read_path).exists() {
                     // logger.log("Modbus read trigger detected");
                     
                     // Add 3 second timeout for Modbus read
-                    let read_future = read_modbus_data(&mut modbus_ctx, &config.protocol, &logger);
+                    let read_future = read_modbus_data(&mut modbus_ctx, &config.protocol, &config.serial, &logger);
                     let timeout_future = tokio::time::sleep(Duration::from_secs(3));
                     
                     let modbus_result = tokio::select! {
@@ -628,7 +792,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                         }
                     }
                     
-                    let _ = std::fs::remove_file(trigger_path);
+                    let _ = std::fs::remove_file(trigger_read_path);
                 }
                 
                 // Then handle MQTT events with timeout
@@ -740,14 +904,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         } 
         else {
             // MQTT disabled, only check trigger file
-            let trigger_path = "/tmp/rs485/modbus_read";
-            let result_path = "/tmp/rs485/modbus_result";
-            
-            if Path::new(trigger_path).exists() {
+            if Path::new(trigger_read_path).exists() {
                 // logger.log("Modbus read trigger detected");
                 
                 // Add 3 second timeout for Modbus read
-                let read_future = read_modbus_data(&mut modbus_ctx, &config.protocol, &logger);
+                let read_future = read_modbus_data(&mut modbus_ctx, &config.protocol, &config.serial, &logger);
                 let timeout_future = tokio::time::sleep(Duration::from_secs(3));
                 
                 let modbus_result = tokio::select! {
@@ -784,7 +945,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     }
                 }
                     
-                let _ = std::fs::remove_file(trigger_path);
+                let _ = std::fs::remove_file(trigger_read_path);
             }
             
             if mqtt_state != "not_connect" {
@@ -796,11 +957,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
 
         // Check for modbus_write trigger file (works regardless of MQTT state)
-        let trigger_path = "/tmp/rs485/modbus_write";
-        let result_path = "/tmp/rs485/modbus_result";
-        
-        if Path::new(trigger_path).exists() {
-            let write_future = read_modbus_data(&mut modbus_ctx, &config.protocol, &logger);
+        if Path::new(trigger_write_path).exists() {
+            let write_future = read_modbus_data(&mut modbus_ctx, &config.protocol, &config.serial, &logger);
             let timeout_future = tokio::time::sleep(Duration::from_secs(3));
             
             let modbus_result = tokio::select! {
@@ -831,7 +989,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             }
             
             // Remove trigger file
-            let _ = std::fs::remove_file(trigger_path);
+            let _ = std::fs::remove_file(trigger_write_path);
         }
 
         sleep(Duration::from_millis(100)).await;

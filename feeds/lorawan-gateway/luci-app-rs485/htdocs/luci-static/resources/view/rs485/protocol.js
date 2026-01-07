@@ -23,24 +23,61 @@ return view.extend({
     render: function(data) {
         var m, s, o;
 
-        m = new form.Map('rs485-module', _('RS485 Protocol Configuration'),
+        m = new form.Map('rs485-module', _('Protocol Settings'),
             _('Configure RS485 protocol settings'));
 
-        s = m.section(form.TypedSection, 'protocol', _('Protocol Settings'));
+        s = m.section(form.TypedSection, 'protocol', _('Protocol Configuration'));
         s.anonymous = true;
         s.addremove = false;
 
-        o = s.option(form.Flag, 'enabled', _('Enable Protocol Processing'));
-        o.default = '0';
-        o.rmempty = false;
-
+        o = s.option(form.Button, '_toggle_protocol', _('Protocol Status'));
+        o.inputtitle = function() {
+            var enabled = uci.get('rs485-module', 'protocol', 'enabled');
+            return enabled === '1' ? _('Disable Protocol') : _('Enable Protocol');
+        };
+        o.inputstyle = function() {
+            var enabled = uci.get('rs485-module', 'protocol', 'enabled');
+            return enabled === '1' ? 'reset' : 'apply';
+        };
+        o.onclick = function(ev) {
+            var currentEnabled = uci.get('rs485-module', 'protocol', 'enabled');
+            
+            if (currentEnabled !== '1') {
+                var serialEnabled = uci.get('rs485-module', 'serial', 'enabled');
+                if (serialEnabled !== '1') {
+                    ui.showModal(_('Cannot Enable Protocol'), [
+                        E('p', _('Please enable Serial Port first before enabling Protocol.')),
+                        E('div', { 'style': 'display: flex; justify-content: space-between; margin-top: 10px;' }, [
+                            E('button', {
+                                'class': 'cbi-button cbi-button-primary',
+                                'click': function() {
+                                    ui.hideModal();
+                                    window.location.href = '/cgi-bin/luci/admin/rs485/serial';
+                                }
+                            }, _('Go to Serial Settings')),
+                            E('button', {
+                                'class': 'cbi-button',
+                                'click': ui.hideModal
+                            }, _('Cancel'))
+                        ])
+                    ]);
+                    return;
+                }
+                uci.set('rs485-module', 'protocol', 'enabled', '1');
+                ev.target.textContent = _('Disable Protocol');
+                ev.target.className = 'cbi-button cbi-button-reset';
+            } else {
+                uci.set('rs485-module', 'protocol', 'enabled', '0');
+                ev.target.textContent = _('Enable Protocol');
+                ev.target.className = 'cbi-button cbi-button-apply';
+            }
+        };
         o = s.option(form.ListValue, 'type', _('Protocol Type'));
         o.value('modbus-rtu', 'Modbus RTU');
         o.value('bacnet-mstp', 'BACnet MS/TP');
         o.default = 'modbus-rtu';
 
         o = s.option(form.Value, 'device_address', _('Device Address (Slave ID)'));
-        o.datatype = 'range(1,247)';
         o.placeholder = '1';
         o.default = '1';
 
@@ -235,6 +272,15 @@ return view.extend({
 
         // Write data value input
         o = s.option(form.Value, 'write_value', _('Write Value'));
+        o.depends('function_code', '05');
+        o.depends('function_code', '06');
+        o.depends('function_code', '15');
+        o.depends('function_code', '16');
+
+        // Standard mode checkbox
+        o = s.option(form.Flag, 'standard_mode', _('Standard Mode'),
+            _('Use standard Modbus protocol. Uncheck to use custom hex data mode.'));
+        o.default = '1';
         o.depends('function_code', '05');
         o.depends('function_code', '06');
         o.depends('function_code', '15');

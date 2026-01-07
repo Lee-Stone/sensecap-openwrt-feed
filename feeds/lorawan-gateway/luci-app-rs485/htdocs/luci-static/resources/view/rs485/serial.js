@@ -12,7 +12,7 @@ return view.extend({
     render: function() {
         var m, s, o;
 
-        m = new form.Map('rs485-module', _('Serial Port Settings'), 
+        m = new form.Map('rs485-module', _('Serial Settings'), 
             _('Configure serial port parameters for RS485 communication.'));
 
         s = m.section(form.NamedSection, 'serial', 'serial');
@@ -49,6 +49,26 @@ return view.extend({
                                     window.location.href = '/cgi-bin/luci/admin/rs485/mqtt';
                                 }
                             }, _('Go to MQTT Settings')),
+                            E('button', {
+                                'class': 'cbi-button',
+                                'click': ui.hideModal
+                            }, _('Cancel'))
+                        ])
+                    ]);
+                    return;
+                }
+                var protocolEnabled = uci.get('rs485-module', 'protocol', 'enabled');
+                if (protocolEnabled === '1') {
+                    ui.showModal(_('Cannot Close Serial Port'), [
+                        E('p', _('Please disable Protocol first before closing the serial port.')),
+                        E('div', { 'style': 'display: flex; justify-content: space-between; margin-top: 10px;' }, [
+                            E('button', {
+                                'class': 'cbi-button cbi-button-primary',
+                                'click': function() {
+                                    ui.hideModal();
+                                    window.location.href = '/cgi-bin/luci/admin/rs485/protocol';
+                                }
+                            }, _('Go to Protocol Settings')),
                             E('button', {
                                 'class': 'cbi-button',
                                 'click': ui.hideModal
