@@ -16,7 +16,11 @@
         }
     },
     "admin/system/leds": {
-        "order": 3
+        "order": 3,
+        "action": {
+            "type": "view",
+            "path": "system/led"
+        }
     },
     "admin/system/ups": {
         "order": 4
