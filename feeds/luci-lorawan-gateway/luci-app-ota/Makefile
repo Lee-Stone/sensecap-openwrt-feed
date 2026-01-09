@@ -11,6 +11,7 @@ LUCI_DEPENDS:=+luci-mod-system +curl
 LUCI_PKGARCH:=all
 
 PKG_VERSION:=1.0.0
+PKG_FLAGS:=nonshared
 PKG_RELEASE:=1
 
 include $(TOPDIR)/feeds/luci/luci.mk
