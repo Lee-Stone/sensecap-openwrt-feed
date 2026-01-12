@@ -28,6 +28,8 @@ define Package/hardware-info/install
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/hardware_info $(1)/usr/bin/
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./files/hardware_info.init $(1)/etc/init.d/hardware_info
+	$(INSTALL_DIR) $(1)/etc/uci-defaults
+	$(INSTALL_BIN) ./files/99-fix-distfeeds $(1)/etc/uci-defaults/99-fix-distfeeds
 endef
 
 $(eval $(call BuildPackage,hardware-info))
