@@ -5,6 +5,10 @@
             "ubus": {
                 "uci": [
                     "get"
+                ],
+                "sensecap": [
+                    "reboot_host",
+                    "shutdown_host"
                 ]
             }
         },
@@ -13,6 +17,10 @@
                 "uci": [
                     "set",
                     "commit"
+                ],
+                "sensecap": [
+                    "reboot_host",
+                    "shutdown_host"
                 ]
             }
         }

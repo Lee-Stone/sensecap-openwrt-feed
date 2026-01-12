@@ -265,6 +265,20 @@ local my_method = {
                                 end
                                 conn:reply(req, {state=lora_module_state});
                         end, {state=ubus.INT8}
+                },
+                reboot_host = {
+                        function(req, msg)
+                                os.execute("echo b > /proc/sysrq-trigger")
+                                print("Rebooting host...")
+                                conn:reply(req, {result=0})
+                        end, {}
+                },
+                shutdown_host = {
+                        function(req, msg)
+                                os.execute("echo o > /proc/sysrq-trigger")
+                                print("Shutting down host...")
+                                conn:reply(req, {result=0})
+                        end, {}
                 }
         }
 }

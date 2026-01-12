@@ -31,7 +31,11 @@
     },
     "admin/system/reboot": {
         "title": "Shutdown / Reboot",
-        "order": 6
+        "order": 6,
+        "action": {
+            "type": "view",
+            "path": "system/reboot"
+        }
     },
     "admin/system/admin": {
         "order": 7
