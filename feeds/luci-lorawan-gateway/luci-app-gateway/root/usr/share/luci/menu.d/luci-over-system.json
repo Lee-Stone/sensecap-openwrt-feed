@@ -59,5 +59,12 @@
                 "/dev/null/hidden": "executable"
             }
         }
+    },
+    "admin/system/flash": {
+        "depends": {
+            "fs": {
+                "/dev/null/hidden": "executable"
+            }
+        }
     }
 }
