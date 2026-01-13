@@ -11,6 +11,14 @@ log_message() {
 }
 
 initialize_default_ap() {
+    while true; do
+        if ip link show wlan0 &>/dev/null; then
+            log_message "wlan0 interface detected"
+            break
+        fi
+        sleep 2
+    done
+
     log_message "Initializing default AP configuration"
     
     local sn=""
@@ -35,6 +43,14 @@ initialize_default_ap() {
     fi
     
     log_message "Setting up AP with SSID: $ssid"
+
+    if ! uci -q get wireless.radio0 >/dev/null 2>&1; then
+        log_message "Creating wifi-device radio0"
+        uci set wireless.radio0='wifi-device'
+        uci set wireless.radio0.type='mac80211'
+        uci set wireless.radio0.path='platform/soc/fe300000.mmcnr/mmc_host/mmc1/mmc1:0001/mmc1:0001:1'
+        uci commit wireless
+    fi
     
     uci set wireless.radio0.disabled='0'
     uci set wireless.radio0.band='2g'
@@ -55,6 +71,10 @@ initialize_default_ap() {
     
     uci commit wireless
     wifi reload
+    
+    rm -rf /tmp/luci-*
+    /etc/init.d/rpcd restart
+    /etc/init.d/uhttpd restart
     
     log_message "Default AP initialized: SSID=$ssid, Password=1234567890"
 }
