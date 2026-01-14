@@ -1,6 +1,4 @@
 config sx130x 'sx130x'
-	option com_type 'SPI'
-	option com_path '/dev/spidev0.1'
 	option region 'US915'
 	option channel_plan "US_902_928_FSB_2"
 

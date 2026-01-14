@@ -9,11 +9,12 @@ CONFIGFILE="/tmp/packetforwarder/global_conf.json"
 CHANNELDIR="/etc/packetforwarder/"
 
 parse_sx130x() {
-	local section="$1"
+	load hardware
+	local section="hardware"
 	if json_select SX130x_conf; then
-		config_get val "$section" com_type
+		config_get val "hardware" lora_com_type "SPI"
 		[ -n "$val" ] && json_add_string 'com_type' "$val"
-		config_get val "$section" com_path
+		config_get val "hardware" lora_com_path "/dev/spidev0.1"
 		[ -n "$val" ] && json_add_string 'com_path' "$val"
 		json_select ..
 	fi
@@ -209,7 +210,6 @@ process_config() {
 		fi
 	fi
 
-	config_foreach parse_sx130x sx130x
 	if [ "$platform" = "packet_forwarder" ]; then
 		config_foreach parse_gateway gateway
 	else
@@ -236,7 +236,7 @@ start_service() {
 		logger "mode: basic_station; lora_pkt_fwd exit !"
 		return
 	}
-
+	parse_sx130x
 	process_config "$platform"
 
 	logger "lora_pkt_fwd: Start $CONFIGFILE"
