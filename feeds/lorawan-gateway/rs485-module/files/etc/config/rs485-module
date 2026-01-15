@@ -17,7 +17,7 @@ config mqtt 'mqtt'
 
 config serial 'serial'
         option enabled '1'
-        option device 'ttyAMA2'
+        option device 'RS485-1'
         option baudrate '9600'
         option databit '8'
         option stopbit '1'

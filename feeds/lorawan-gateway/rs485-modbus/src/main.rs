@@ -191,7 +191,7 @@ fn load_config_from_uci() -> Result<Config, Box<dyn std::error::Error + Send + S
     // Serial config
     let device = format!(
         "/dev/{}",
-        uci_get("rs485-module", "serial", "device").unwrap_or_else(|_| "ttyAMA2".to_string())
+        uci_get("rs485-module", "serial", "device").unwrap_or_else(|_| "RS485-1".to_string())
     );
     let baudrate = uci_get("rs485-module", "serial", "baudrate")
         .ok()

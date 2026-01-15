@@ -94,12 +94,10 @@ return view.extend({
         };
 
         o = s.option(form.ListValue, 'device', _('Serial Device'));
-        o.value('ttyAMA2', 'ttyAMA2');
-        o.value('ttyAMA3', 'ttyAMA3');
-        o.value('ttyAMA4', 'ttyAMA4');
-        o.value('ttyUSB0', 'ttyUSB0');
-        o.value('ttyUSB1', 'ttyUSB1');
-        o.default = 'ttyAMA2';
+        o.value('RS485-1', 'RS485-1');
+        o.value('RS485-2', 'RS485-2');
+        o.value('RS485-3', 'RS485-3');
+        o.default = 'RS485-1';
 
         o = s.option(form.ListValue, 'baudrate', _('Baud Rate'));
         o.value('1200', '1200');
