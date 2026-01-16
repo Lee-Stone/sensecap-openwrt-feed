@@ -4,8 +4,9 @@
  Licensed to the public under the Apache License 2.0.
 -#}
 
-{% include('header') %}
+{% include('header', { blank_page: true }) %}
 
+<div style="max-width: 500px; margin: 50px auto; padding: 0 20px;">
 <form method="post">
 	{% if (fuser): %}
 		<div class="alert-message warning">
@@ -22,7 +23,7 @@
 			<div class="cbi-value">
 				<label class="cbi-value-title">{{ _('Username') }}</label>
 				<div class="cbi-value-field">
-					<input class="cbi-input-text" type="text" name="luci_username" value="{{ entityencode(duser, true) }}" />
+					<input class="cbi-input-text" type="text" name="luci_username" value="admin" />
 				</div>
 			</div>
 			<div class="cbi-value cbi-value-last">
@@ -40,11 +41,12 @@
 
 	<div class="cbi-page-actions">
 		<input type="submit" value="{{ _('Log in') }}" class="btn cbi-button cbi-button-apply" />
-	</div>
+    </div>
 </form>
+</div>
 
 {%
-	let https_ports = uci.get('uhttpd', 'main', 'listen_https') ?? [];
+    let https_ports = uci.get('uhttpd', 'main', 'listen_https') ?? [];
 
 	https_ports = uniq(filter(
 		map(
@@ -74,4 +76,4 @@
 	}
 </script>
 
-{% include('footer') %}
+{% include('footer', { blank_page: true }) %}
