@@ -1,0 +1,5 @@
+#!/bin/sh
+
+/usr/bin/hardware_info
+
+exit 0
