@@ -16,10 +16,10 @@
         "order": 20,
         "action": {
             "type": "view",
-            "path": "network/routes"
+            "path": "routing/routes"
         },
         "depends": {
-            "acl": [ "luci-mod-network-config" ]
+            "acl": [ "luci-app-routing" ]
         }
     },
     "admin/network/dhcp": {

@@ -1,0 +1,15 @@
+{
+    "luci-app-routing": {
+        "description": "Grant access to routing configuration",
+        "read": {
+            "uci": [
+                "network"
+            ]
+        },
+        "write": {
+            "uci": [
+                "network"
+            ]
+        }
+    }
+}
