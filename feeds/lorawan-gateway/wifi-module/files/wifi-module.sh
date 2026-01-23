@@ -179,7 +179,7 @@ check_r1225_hotspot() {
         return
     fi
     
-    local has_clients=$(iw dev 2>/dev/null | grep -A 20 "Interface wlan" | grep -c "Station")
+    local has_clients=$(iw dev wlan0 station dump 2>/dev/null | grep -c "^Station")
     
     if [ "$has_clients" -eq 0 ]; then
         NO_CLIENT_COUNTER=$((NO_CLIENT_COUNTER + 1))
