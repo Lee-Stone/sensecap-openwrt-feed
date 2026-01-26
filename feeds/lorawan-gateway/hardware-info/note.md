@@ -9,12 +9,12 @@ EEPROM binary format:
 Offset  Length  Description
 0x00    4       Magic Number: 0xDEADBEEF
 0X04    2       DATA length (0x04 to 0X46)
-0x06    16      Gateway SN (big-endian) E.g., "RCPGW0001XXXXXX"
-0x16    8       Gateway EUI (big-endian) E.g., 0X0011223344556677
-0X1E    2       Freq Plan (big-endian) E.g., 0X0001 -> "US915"
+0x06    18      Gateway SN (big-endian) E.g., "RCPGW0001XXXXXXXX"
+0x18    8       Gateway EUI (big-endian) E.g., 0X0011223344556677
+0X20    2       Freq Plan (big-endian) E.g., 0X0001 -> "US915"
         0X0001: US915
         0X0002: EU868
         0X0003: CN470
-0X20    2      Hardware Name Length (big-endian) E.g., 0X0008
-0X22    32     Hardware Name E.g., "reComputer-R1125" (Null-terminated if length <32)
-0X42    4      CRC32 checksum of all previous bytes (0x04 to 0X42)
+0X22    2      Hardware Name Length (big-endian) E.g., 0X0008
+0X24    32     Hardware Name E.g., "reComputer-R1125" (Null-terminated if length <32)
+0X44    4      CRC32 checksum of all previous bytes (0x04 to 0X44)

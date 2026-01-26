@@ -1,8 +1,8 @@
 #!/bin/sh
 
 # Defaults
-DEFAULT_SN="RCPGW0001XXXXXX"
-DEFAULT_EUI="0011223344556677"
+DEFAULT_SN="100079154261000001"
+DEFAULT_EUI="2CF7F1C0751000A0"
 DEFAULT_FREQ_PLAN="US915"
 DEFAULT_HW_NAME="reComputer-R1125"
 DEFAULT_OUTPUT_FILE="/dev/eeprom"
@@ -74,15 +74,15 @@ DATA_TMP=$(mktemp)
 
 # 1. Magic (0xDEADBEEF) - 4 bytes + data length - 2 bytes
 printf "\xDE\xAD\xBE\xEF" > "$DATA_TMP"
-printf "\x00\x46" >> "$DATA_TMP"
+printf "\x00\x48" >> "$DATA_TMP"
 
-# 2. SN - 16 bytes
+# 2. SN - 18 bytes
 # Truncate if too long, pad if too short
-printf "%.16s" "$SN" >> "$DATA_TMP"
+printf "%.18s" "$SN" >> "$DATA_TMP"
 # Pad with nulls if length < 16
-current_len=$(printf "%.16s" "$SN" | wc -c)
-if [ "$current_len" -lt 16 ]; then
-    pad_len=$((16 - current_len))
+current_len=$(printf "%.18s" "$SN" | wc -c)
+if [ "$current_len" -lt 18 ]; then
+    pad_len=$((18 - current_len))
     dd if=/dev/zero bs=1 count="$pad_len" 2>/dev/null >> "$DATA_TMP"
 fi
 
@@ -126,7 +126,10 @@ calc_crc32() {
     fi
 }
 
-CRC_HEX="E1A425E2"  # $(calc_crc32 "$DATA_TMP")
+CRC_DATA_TMP=$(mktemp)
+tail -c +7 "$DATA_TMP" > "$CRC_DATA_TMP"
+CRC_HEX=$(calc_crc32 "$CRC_DATA_TMP")
+rm "$CRC_DATA_TMP"
 # Convert CRC hex to binary (4 bytes)
 CRC_HEX_PADDED=$(printf "%08s" "$CRC_HEX" | tr ' ' '0')
 hexstr_to_bin "$CRC_HEX_PADDED" >> "$DATA_TMP"

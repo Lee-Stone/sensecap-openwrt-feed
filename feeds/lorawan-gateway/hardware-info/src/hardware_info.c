@@ -14,12 +14,12 @@
 struct __attribute__((packed)) eeprom_layout {
     uint32_t magic;         // 0x00
     uint16_t data_len;      // 0x04
-    uint8_t sn[16];         // 0x06
-    uint8_t eui[8];         // 0x16
-    uint16_t freq_plan;     // 0x1E
-    uint16_t hw_name_len;   // 0x20
-    char hw_name[32];       // 0x22
-    uint32_t crc;           // 0x42
+    uint8_t sn[18];         // 0x06
+    uint8_t eui[8];         // 0x18
+    uint16_t freq_plan;     // 0x20
+    uint16_t hw_name_len;   // 0x22
+    char hw_name[32];       // 0x24
+    uint32_t crc;           // 0x44
 };
 
 // Freq Plan
@@ -77,9 +77,9 @@ int main(int argc, char *argv[]) {
     }
 
     // Verify CRC
-    // CRC of previous bytes (0x04 to 0x42, length 62)
+    // CRC of previous bytes (0x04 to 0x42, length 64)
     uint32_t stored_crc = ntohl(data.crc);
-    uint32_t calced_crc = calc_crc32((uint8_t*)&data + 4, 62);
+    uint32_t calced_crc = calc_crc32((uint8_t*)&data + 4, 64);
     
     if (stored_crc != calced_crc) {
          fprintf(stderr, "Warning: CRC Mismatch. Stored: 0x%08X, Calc: 0x%08X\n", stored_crc, calced_crc);
@@ -89,9 +89,9 @@ int main(int argc, char *argv[]) {
     mkdir(OUT_DIR, 0755);
 
     // SN
-    char sn_str[17];
-    memcpy(sn_str, data.sn, 16);
-    sn_str[16] = '\0';
+    char sn_str[19];
+    memcpy(sn_str, data.sn, 18);
+    sn_str[18] = '\0';
     write_file("sn", sn_str);
 
     // EUI
