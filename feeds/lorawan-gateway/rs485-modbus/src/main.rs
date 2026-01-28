@@ -67,6 +67,9 @@ struct ProtocolConfig {
     data_length: u16,
     write_value: String,
     standard_mode: bool,
+    work_mode: String,
+    poll_interval: u64,
+    timeout: u64,
 }
 
 // MQTT Message Structures
@@ -261,6 +264,19 @@ fn load_config_from_uci() -> Result<Config, Box<dyn std::error::Error + Send + S
         .and_then(|s| s.parse::<u8>().ok())
         .unwrap_or(1) == 1;
 
+    let work_mode = uci_get("rs485-module", "protocol", "work_mode")
+        .unwrap_or_else(|_| "once".to_string());
+    
+    let poll_interval = uci_get("rs485-module", "protocol", "poll_interval")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(10);
+    
+    let timeout = uci_get("rs485-module", "protocol", "timeout")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(10);
+
     let protocol_config = ProtocolConfig {
         device_address,
         function_code,
@@ -268,6 +284,9 @@ fn load_config_from_uci() -> Result<Config, Box<dyn std::error::Error + Send + S
         data_length,
         write_value,
         standard_mode,
+        work_mode,
+        poll_interval,
+        timeout,
     };
 
     Ok(Config {
@@ -709,6 +728,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut mqtt_client: Option<AsyncClient> = None;                // MQTT client
     let mut mqtt_eventloop: Option<rumqttc::EventLoop> = None;      // MQTT event loop
     let mut mqtt_state = "not_connect";                             // MQTT connection state   
+    let mut last_periodic_read = tokio::time::Instant::now();       // Last periodic read timestamp
 
     loop {
         // Load configuration
@@ -737,62 +757,122 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 }
             } 
             else if mqtt_state == "success_connect" {
-                // Check for modbus_read trigger file first (higher priority)
-                if Path::new(trigger_read_path).exists() {
-                    // logger.log("Modbus read trigger detected");
-                    
-                    // Add 3 second timeout for Modbus read
-                    let read_future = read_modbus_data(&mut modbus_ctx, &config.protocol, &config.serial, &logger);
-                    let timeout_future = tokio::time::sleep(Duration::from_secs(3));
-                    
-                    let modbus_result = tokio::select! {
-                        result = read_future => Some(result),
-                        _ = timeout_future => {
-                            logger.log("Modbus read timeout after 3 seconds");
-                            None
-                        }
-                    };
-                    
-                    match modbus_result {
-                        Some(Ok(data)) => {
-                            // logger.log(&format!("Modbus data: {}", data));
-                            match std::fs::write(result_path, &data) {
-                                Ok(_) => logger.log(&format!("Modbus data received: {}", data)),
-                                Err(e) => logger.log(&format!("Failed to write result file: {}", e)),
+                // Handle work mode based logic
+                if config.protocol.work_mode == "once" {
+                        // Check for modbus_read trigger file first (higher priority)
+                    if Path::new(trigger_read_path).exists() {
+                        // logger.log("Modbus read trigger detected");
+                        
+                        // Add 3 second timeout for Modbus read
+                        let read_future = read_modbus_data(&mut modbus_ctx, &config.protocol, &config.serial, &logger);
+                        let timeout_future = tokio::time::sleep(Duration::from_millis(config.protocol.timeout * 100));
+                        
+                        let modbus_result = tokio::select! {
+                            result = read_future => Some(result),
+                            _ = timeout_future => {
+                                logger.log(&format!("Modbus read timeout after {}ms", config.protocol.timeout * 100));
+                                None
                             }
-                            
-                            // Publish to MQTT if enabled
-                            if config.mqtt.enabled {
-                                if let Some(ref client) = mqtt_client {
-                                    let uplink_msg = UplinkMessage { data: data.clone() };
-                                    if let Ok(json) = serde_json::to_string(&uplink_msg) {
-                                        match client.publish(&config.mqtt.uplink_topic, config.mqtt.qos_level, false, json.as_bytes()).await {
-                                            Ok(_) => logger.log(&format!("Published to MQTT: {}", json)),
-                                            Err(e) => logger.log(&format!("MQTT publish failed: {}", e)),
+                        };
+                        
+                        match modbus_result {
+                            Some(Ok(data)) => {
+                                // logger.log(&format!("Modbus data: {}", data));
+                                match std::fs::write(result_path, &data) {
+                                    Ok(_) => logger.log(&format!("Modbus data received: {}", data)),
+                                    Err(e) => logger.log(&format!("Failed to write result file: {}", e)),
+                                }
+                                
+                                // Publish to MQTT if enabled
+                                if config.mqtt.enabled {
+                                    if let Some(ref client) = mqtt_client {
+                                        let uplink_msg = UplinkMessage { data: data.clone() };
+                                        if let Ok(json) = serde_json::to_string(&uplink_msg) {
+                                            match client.publish(&config.mqtt.uplink_topic, config.mqtt.qos_level, false, json.as_bytes()).await {
+                                                Ok(_) => logger.log(&format!("Published to MQTT: {}", json)),
+                                                Err(e) => logger.log(&format!("MQTT publish failed: {}", e)),
+                                            }
                                         }
                                     }
                                 }
                             }
-                        }
-                        Some(Err(e)) => {
-                            logger.log(&format!("Modbus read failed: {}", e));
-                            let error_msg = format!("Error: {}", e);
-                            match std::fs::write(result_path, &error_msg) {
-                                Ok(_) => logger.log("Error result written"),
-                                Err(e) => logger.log(&format!("Failed to write error: {}", e)),
+                            Some(Err(e)) => {
+                                logger.log(&format!("Modbus read failed: {}", e));
+                                let error_msg = format!("Error: {}", e);
+                                match std::fs::write(result_path, &error_msg) {
+                                    Ok(_) => logger.log("Error result written"),
+                                    Err(e) => logger.log(&format!("Failed to write error: {}", e)),
+                                }
+                            }
+                            None => {
+                                // Timeout occurred
+                                let error_msg = "Error: Modbus read timeout";
+                                match std::fs::write(result_path, &error_msg) {
+                                    Ok(_) => logger.log("Error result written"),
+                                    Err(e) => logger.log(&format!("Failed to write error: {}", e)),
+                                }
                             }
                         }
-                        None => {
-                            // Timeout occurred
-                            let error_msg = "Error: Modbus read timeout";
-                            match std::fs::write(result_path, &error_msg) {
-                                Ok(_) => logger.log("Error result written"),
-                                Err(e) => logger.log(&format!("Failed to write error: {}", e)),
+                    
+                        let _ = std::fs::remove_file(trigger_read_path);
+                    }
+                } 
+                else if config.protocol.work_mode == "periodic" && matches!(config.protocol.function_code, 1 | 2 | 3 | 4) {
+                    // Periodic mode: Read at intervals
+                    let elapsed = last_periodic_read.elapsed();
+                    if elapsed >= Duration::from_secs(config.protocol.poll_interval) {
+                        last_periodic_read = tokio::time::Instant::now();
+                        
+                        let read_future = read_modbus_data(&mut modbus_ctx, &config.protocol, &config.serial, &logger);
+                        let timeout_duration = Duration::from_millis(config.protocol.timeout * 100);
+                        
+                        let modbus_result = tokio::select! {
+                            result = read_future => Some(result),
+                            _ = tokio::time::sleep(timeout_duration) => {
+                                logger.log(&format!("Modbus read timeout after {}ms", config.protocol.timeout * 100));
+                                None
+                            }
+                        };
+                        
+                        match modbus_result {
+                            Some(Ok(data)) => {
+                                // logger.log(&format!("Modbus data: {}", data));
+                                match std::fs::write(result_path, &data) {
+                                    Ok(_) => logger.log(&format!("Modbus data received: {}", data)),
+                                    Err(e) => logger.log(&format!("Failed to write result file: {}", e)),
+                                }
+                                
+                                // Publish to MQTT if enabled
+                                if config.mqtt.enabled {
+                                    if let Some(ref client) = mqtt_client {
+                                        let uplink_msg = UplinkMessage { data: data.clone() };
+                                        if let Ok(json) = serde_json::to_string(&uplink_msg) {
+                                            match client.publish(&config.mqtt.uplink_topic, config.mqtt.qos_level, false, json.as_bytes()).await {
+                                                Ok(_) => logger.log(&format!("Published to MQTT: {}", json)),
+                                                Err(e) => logger.log(&format!("MQTT publish failed: {}", e)),
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Some(Err(e)) => {
+                                logger.log(&format!("Modbus read failed: {}", e));
+                                let error_msg = format!("Error: {}", e);
+                                match std::fs::write(result_path, &error_msg) {
+                                    Ok(_) => logger.log("Error result written"),
+                                    Err(e) => logger.log(&format!("Failed to write error: {}", e)),
+                                }
+                            }
+                            None => {
+                                // Timeout occurred
+                                let error_msg = "Error: Modbus read timeout";
+                                match std::fs::write(result_path, &error_msg) {
+                                    Ok(_) => logger.log("Error result written"),
+                                    Err(e) => logger.log(&format!("Failed to write error: {}", e)),
+                                }
                             }
                         }
                     }
-                    
-                    let _ = std::fs::remove_file(trigger_read_path);
                 }
                 
                 // Then handle MQTT events with timeout
@@ -904,48 +984,94 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         } 
         else {
             // MQTT disabled, only check trigger file
-            if Path::new(trigger_read_path).exists() {
-                // logger.log("Modbus read trigger detected");
-                
-                // Add 3 second timeout for Modbus read
-                let read_future = read_modbus_data(&mut modbus_ctx, &config.protocol, &config.serial, &logger);
-                let timeout_future = tokio::time::sleep(Duration::from_secs(3));
-                
-                let modbus_result = tokio::select! {
-                    result = read_future => Some(result),
-                    _ = timeout_future => {
-                        logger.log("Modbus read timeout after 3 seconds");
-                        None
-                    }
-                };
+            if config.protocol.work_mode == "once" {
+                if Path::new(trigger_read_path).exists() {
+                    // logger.log("Modbus read trigger detected");
+                    
+                    // Add 3 second timeout for Modbus read
+                    let read_future = read_modbus_data(&mut modbus_ctx, &config.protocol, &config.serial, &logger);
+                    let timeout_future = tokio::time::sleep(Duration::from_millis(config.protocol.timeout * 100));
+                    
+                    let modbus_result = tokio::select! {
+                        result = read_future => Some(result),
+                        _ = timeout_future => {
+                            logger.log(&format!("Modbus read timeout after {}ms", config.protocol.timeout * 100));
+                            None
+                        }
+                    };
 
-                match modbus_result {
-                    Some(Ok(data)) => {
-                        // logger.log(&format!("Modbus data: {}", data));
-                        match std::fs::write(result_path, &data) {
-                            Ok(_) => logger.log(&format!("Modbus data received: {}", data)),
-                            Err(e) => logger.log(&format!("Failed to write result file: {}", e)),
+                    match modbus_result {
+                        Some(Ok(data)) => {
+                            // logger.log(&format!("Modbus data: {}", data));
+                            match std::fs::write(result_path, &data) {
+                                Ok(_) => logger.log(&format!("Modbus data received: {}", data)),
+                                Err(e) => logger.log(&format!("Failed to write result file: {}", e)),
+                            }
+                        }
+                        Some(Err(e)) => {
+                            logger.log(&format!("Modbus read failed: {}", e));
+                            let error_msg = format!("Error: {}", e);
+                            match std::fs::write(result_path, &error_msg) {
+                                Ok(_) => logger.log("Error result written"),
+                                Err(e) => logger.log(&format!("Failed to write error: {}", e)),
+                            }
+                        }
+                        None => {
+                            // Timeout occurred
+                            let error_msg = "Error: Modbus read timeout";
+                            match std::fs::write(result_path, &error_msg) {
+                                Ok(_) => logger.log("Error result written"),
+                                Err(e) => logger.log(&format!("Failed to write error: {}", e)),
+                            }
                         }
                     }
-                    Some(Err(e)) => {
-                        logger.log(&format!("Modbus read failed: {}", e));
-                        let error_msg = format!("Error: {}", e);
-                        match std::fs::write(result_path, &error_msg) {
-                            Ok(_) => logger.log("Error result written"),
-                            Err(e) => logger.log(&format!("Failed to write error: {}", e)),
+                        
+                    let _ = std::fs::remove_file(trigger_read_path);
+                }
+            } 
+            else if config.protocol.work_mode == "periodic" && matches!(config.protocol.function_code, 1 | 2 | 3 | 4) {
+                // Periodic mode: Read at intervals
+                let elapsed = last_periodic_read.elapsed();
+                if elapsed >= Duration::from_secs(config.protocol.poll_interval) {
+                    last_periodic_read = tokio::time::Instant::now();
+                    
+                    let read_future = read_modbus_data(&mut modbus_ctx, &config.protocol, &config.serial, &logger);
+                    let timeout_duration = Duration::from_millis(config.protocol.timeout * 100);
+                    
+                    let modbus_result = tokio::select! {
+                        result = read_future => Some(result),
+                        _ = tokio::time::sleep(timeout_duration) => {
+                            logger.log(&format!("Modbus read timeout after {}ms", config.protocol.timeout * 100));
+                            None
                         }
-                    }
-                    None => {
-                        // Timeout occurred
-                        let error_msg = "Error: Modbus read timeout";
-                        match std::fs::write(result_path, &error_msg) {
-                            Ok(_) => logger.log("Error result written"),
-                            Err(e) => logger.log(&format!("Failed to write error: {}", e)),
+                    };
+                    
+                    match modbus_result {
+                        Some(Ok(data)) => {
+                            // logger.log(&format!("Modbus data: {}", data));
+                            match std::fs::write(result_path, &data) {
+                                Ok(_) => logger.log(&format!("Modbus data received: {}", data)),
+                                Err(e) => logger.log(&format!("Failed to write result file: {}", e)),
+                            }
+                        }
+                        Some(Err(e)) => {
+                            logger.log(&format!("Modbus read failed: {}", e));
+                            let error_msg = format!("Error: {}", e);
+                            match std::fs::write(result_path, &error_msg) {
+                                Ok(_) => logger.log("Error result written"),
+                                Err(e) => logger.log(&format!("Failed to write error: {}", e)),
+                            }
+                        }
+                        None => {
+                            // Timeout occurred
+                            let error_msg = "Error: Modbus read timeout";
+                            match std::fs::write(result_path, &error_msg) {
+                                Ok(_) => logger.log("Error result written"),
+                                Err(e) => logger.log(&format!("Failed to write error: {}", e)),
+                            }
                         }
                     }
                 }
-                    
-                let _ = std::fs::remove_file(trigger_read_path);
             }
             
             if mqtt_state != "not_connect" {
@@ -964,7 +1090,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             let modbus_result = tokio::select! {
                 result = write_future => Some(result),
                 _ = timeout_future => {
-                    logger.log("Modbus write operation timeout (3 seconds)");
+                    logger.log("Modbus write operation timeout after 3 seconds");
                     None
                 }
             };
