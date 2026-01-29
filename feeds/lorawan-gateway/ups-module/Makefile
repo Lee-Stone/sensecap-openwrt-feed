@@ -4,17 +4,14 @@ PKG_NAME:=ups-module
 PKG_VERSION:=1.0.0
 PKG_RELEASE:=1
 
-PKG_BUILD_DEPENDS:=rust/host
-
 include $(INCLUDE_DIR)/package.mk
-include $(TOPDIR)/feeds/packages/lang/rust/rust-package.mk
 
 define Package/ups-module
 	SECTION:=gateway
 	CATEGORY:=Gateway
 	TITLE:=UPS Power Management Module
 	URL:=https://github.com/seeed
-	DEPENDS:=+libc +libstdcpp
+	DEPENDS:=+python3 +python3-gpiod
 endef
 
 define Package/ups-module/description
@@ -22,11 +19,7 @@ define Package/ups-module/description
 	and executing commands during power outages.
 endef
 
-define Build/Prepare
-	$(call Build/Prepare/Default)
-	$(CP) ./Cargo.toml $(PKG_BUILD_DIR)/
-	mkdir -p $(PKG_BUILD_DIR)/src
-	$(CP) ./src/main.rs $(PKG_BUILD_DIR)/src/
+define Build/Compile
 endef
 
 define Package/ups-module/conffiles
@@ -35,7 +28,7 @@ endef
 
 define Package/ups-module/install
 	$(INSTALL_DIR) $(1)/usr/bin
-	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/bin/ups-module $(1)/usr/bin/
+	$(INSTALL_BIN) ./src/ups-module.py $(1)/usr/bin/ups-module
 
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./files/ups-module.init $(1)/etc/init.d/ups-module
@@ -64,5 +57,4 @@ define Package/ups-module/prerm
 	exit 0
 endef
 
-$(eval $(call RustBinPackage,ups-module))
 $(eval $(call BuildPackage,ups-module))
