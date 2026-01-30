@@ -184,18 +184,7 @@ parse_station() {
 	json_add_int 'log_size' $(( 1000000*buffer ))
 	config_get buffer "$section" logRotate "$DEFAULT_LOG_ROTATE"
 	json_add_int 'log_rotate' "$buffer"
-	config_get_bool buffer "$section" whitelist_enable "0"
-	json_add_boolean 'whitelist_enable' "$buffer"
-	config_get buffer "$section" whitelist_ouis ""
-	json_add_string 'whitelist_ouis' "$buffer"
-	config_get buffer "$section" whitelist_netids ""
-	json_add_string 'whitelist_netids' "$buffer"
-	config_get buffer "$section" whitelist_devaddr_min "00000000"
-	json_add_string 'whitelist_devaddr_min' "$buffer"
-	config_get buffer "$section" whitelist_devaddr_max "00000000"
-	json_add_string 'whitelist_devaddr_max' "$buffer"
-
-	json_close_object
+	# station_conf object will be supplemented and closed by parse_auth
 }
 
 parse_auth() {
@@ -238,6 +227,39 @@ parse_auth() {
 	fi
 
 	echo "$uri" > /tmp/basicstation/"$cred".uri
+
+	# Supplement station_conf with whitelist configuration
+	config_get_bool buffer "$section" whitelist_enable "0"
+	json_add_boolean 'whitelist_enable' "$buffer"
+	config_get buffer "$section" whitelist_ouis ""
+	if [ -z "$buffer" ]; then
+		json_add_array 'whitelist_ouis'
+		json_close_array
+	else
+		json_add_array 'whitelist_ouis'
+		for oui in $buffer; do
+			json_add_string '' "$oui"
+		done
+		json_close_array
+	fi
+	config_get buffer "$section" whitelist_netids ""
+	if [ -z "$buffer" ]; then
+		json_add_array 'whitelist_netids'
+		json_close_array
+	else
+		json_add_array 'whitelist_netids'
+		for netid in $buffer; do
+			json_add_string '' "$netid"
+		done
+		json_close_array
+	fi
+	config_get buffer "$section" whitelist_devaddr_min "00000000"
+	json_add_string 'whitelist_devaddr_min' "$buffer"
+	config_get buffer "$section" whitelist_devaddr_max "00000000"
+	json_add_string 'whitelist_devaddr_max' "$buffer"
+
+	# Close station_conf object (opened by parse_station)
+	json_close_object
 }
 
 process_config() {
@@ -247,8 +269,8 @@ process_config() {
 	config_load basicstation
 	config_foreach parse_sx130x sx130x
 	config_foreach parse_station station
-	json_dump -i > /tmp/basicstation/station.conf
 	config_foreach parse_auth auth
+	json_dump -i > /tmp/basicstation/station.conf
 }
 
 service_triggers() {
