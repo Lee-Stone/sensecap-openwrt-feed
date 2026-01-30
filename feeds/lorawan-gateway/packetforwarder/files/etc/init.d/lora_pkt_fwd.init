@@ -63,7 +63,8 @@ parse_gateway() {
 	json_add_int 'beacon_power' "$val"
 	config_get val "$section" beacon_infodesc 0
 	json_add_int 'beacon_infodesc' "$val"
-	config_get val "$section" fake_gps 0
+	config_get_bool val "$section" fake_gps "0"
+	json_add_boolean 'fake_gps' "$val"
 	[ "$val" -eq 1 ] && {
 		config_get val "$section" ref_latitude 0.0
 		json_add_double 'ref_latitude' "$val"
