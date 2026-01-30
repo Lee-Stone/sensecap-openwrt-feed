@@ -26,11 +26,22 @@ endef
 define Package/hardware-info/install
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/hardware_info $(1)/usr/bin/
+	$(INSTALL_DIR) $(1)/etc/init.d
+	$(INSTALL_BIN) ./files/hardware-info.init $(1)/etc/init.d/hardware-info
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
 	$(INSTALL_BIN) ./files/10_hardware_info $(1)/etc/uci-defaults/10_hardware_info
 	$(INSTALL_BIN) ./files/99-fix-distfeeds $(1)/etc/uci-defaults/99-fix-distfeeds
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_DATA) ./files/etc/config/hardware $(1)/etc/config/hardware
+endef
+
+define Package/hardware-info/postinst
+	#!/bin/sh
+	[ -n "$$IPKG_INSTROOT" ] || {
+		/etc/init.d/hardware-info enable
+		/etc/init.d/hardware-info start
+	}
+	exit 0
 endef
 
 $(eval $(call BuildPackage,hardware-info))

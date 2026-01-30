@@ -1,0 +1,13 @@
+#!/bin/sh /etc/rc.common
+
+START=10
+STOP=98
+
+start() {
+	echo "Running hardware_info to update device information..."
+	/usr/bin/hardware_info
+}
+
+stop() {
+	:
+}
