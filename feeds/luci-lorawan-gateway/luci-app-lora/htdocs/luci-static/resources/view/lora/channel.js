@@ -116,7 +116,7 @@ var freq_plan_table = {
                 "file": "AS_920_923",
                 "title": "Asia 920-923 MHz",
                 "mode": ["packet_forwarder"],
-                "freqname": "as923"
+                "freqname": "as923_2"
             },
             {
                 "file": "AS_923_925_TTN",
