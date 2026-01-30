@@ -74,10 +74,20 @@ parse_gateway() {
 	}
 	config_get_bool val "$section" whitelist_enable "0"
 	json_add_boolean 'whitelist_enable' "$val"
-	config_get buffer "$section" whitelist_ouis ""
-	json_add_string 'whitelist_ouis' "$buffer"
-	config_get buffer "$section" whitelist_netids ""
-	json_add_string 'whitelist_netids' "$buffer"
+	# whitelist_ouis array
+	__json_add_whitelist_ouis() {
+		json_add_string "" "$1"
+	}
+	json_add_array 'whitelist_ouis'
+	config_list_foreach "$section" whitelist_ouis __json_add_whitelist_ouis
+	json_close_array
+	# whitelist_netids array
+	__json_add_whitelist_netids() {
+		json_add_string "" "$1"
+	}
+	json_add_array 'whitelist_netids'
+	config_list_foreach "$section" whitelist_netids __json_add_whitelist_netids
+	json_close_array
 	config_get buffer "$section" whitelist_devaddr_min "00000000"
 	json_add_string 'whitelist_devaddr_min' "$buffer"
 	config_get buffer "$section" whitelist_devaddr_max "00000000"
