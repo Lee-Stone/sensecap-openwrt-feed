@@ -1613,47 +1613,6 @@ return view.extend({
 			}, [val]) : (mtu || '-').toString();
 		};
 
-		s = m.section(form.TypedSection, 'globals', _('Global network options'));
-		s.addremove = false;
-		s.anonymous = true;
-
-		o = s.option(form.Value, 'ula_prefix', _('IPv6 ULA-Prefix'),
-			_('Unique Local Address (%s) - prefix <code>fd00::/8</code> (the L bit is always 1).').format('<a href="%s" target="_blank">RFC4193</a>').format('https://datatracker.ietf.org/doc/html/rfc4193#section-3') + ' ' +
-			_('ULA for IPv6 is analogous to IPv4 private network addressing.') + ' ' +
-			_('This prefix is randomly generated at first install.'));
-		o.datatype = 'cidr6';
-
-		const l3mdevhelp1 = _('%s services running on this device in the default VRF context (ie., not bound to any VRF device) shall work across all VRF domains.');
-		const l3mdevhelp2 = _('Off means VRF traffic will be handled exclusively by sockets bound to VRFs.');
-
-		o = s.option(form.Flag, 'tcp_l3mdev', _('TCP Layer 3 Master Device (tcp_l3mdev) accept'),
-			l3mdevhelp1.format('TCP') + '<br/>' +
-			l3mdevhelp2);
-
-		o = s.option(form.Flag, 'udp_l3mdev', _('UDP Layer 3 Master Device (udp_l3mdev) accept'),
-			l3mdevhelp1.format('UDP') + '<br/>' +
-			l3mdevhelp2);
-
-		o = s.option(form.ListValue, 'packet_steering', _('Packet Steering'), _('Enable packet steering across CPUs. May help or hinder network speed.'));
-		o.value('0', _('Disabled'));
-		o.value('1', _('Enabled'));
-		o.value('2', _('Enabled (all CPUs)'));
-		o.default = '1';
-		o.optional = true;
-
-		var steer_flow = uci.get('network', 'globals', 'steering_flows');
-
-		o = s.option(form.Value, 'steering_flows', _('Steering flows (<abbr title="Receive Packet Steering">RPS</abbr>)'),
-			_('Directs packet flows to specific CPUs where the local socket owner listens (the local service).') + ' ' +
-			_('Note: this setting is for local services on the device only (not for forwarding).'));
-		o.value('', _('Standard: none'));
-		o.value('128', _('Suggested: 128'));
-		o.value('256', _('256'));
-		o.depends('packet_steering', '1');
-		o.depends('packet_steering', '2');
-		o.datatype = 'uinteger';
-		o.default = steer_flow;
-
 		if (dslModemType != null) {
 			s = m.section(form.TypedSection, 'dsl', _('DSL'));
 			s.anonymous = true;
@@ -1800,11 +1759,6 @@ return view.extend({
 					.then(L.bind(this.poll_status, this, nodes));
 			}, this), 5);
 
-			// Hide Global network options section
-			var globalSection = nodes.querySelector('[data-tab="globals"]');
-			if (globalSection) globalSection.style.display = "none";
-			var globalTitle = nodes.querySelector('[data-tab-title="globals"]');
-			if (globalTitle) globalTitle.style.display = "none";
 
 			return nodes;
 		}, this, m));
