@@ -65,6 +65,8 @@ uci set firewall.@rule[-1].dest_port='7681'
 uci set firewall.@rule[-1].target='ACCEPT'
 uci set firewall.@rule[-1].family='ipv4'
 uci add_list firewall.@zone[0].network='wlan'
+uci add_list firewall.@zone[1].network='LTE'
+uci add_list firewall.@zone[1].network='wwan'
 uci commit firewall
 
 # Set dhcp configuration
